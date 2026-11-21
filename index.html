@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="15">
+<meta name="jr-version" content="16">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -2475,6 +2475,22 @@ const ASSISTANT_SERVER = "https://jobradar-assistant.billowing-shape-d74b.worker
 const legacyAssistant = store.get("jr_assistant", null);
 let assistant = null;
 
+function savedApplicationAnswers(industry) {
+  const profile = store.get("jr_application_profile", null);
+  if (!profile) return null;
+  const scope = norm(industry);
+  const experience = scope && profile.experience && Object.hasOwn(profile.experience, scope) ? profile.experience[scope] : "skip";
+  const answers = {role:profile.role, time:profile.time, strength:profile.strength,
+    experience};
+  return APPLICATION_QUESTIONS.every(({key, options}) => Object.hasOwn(options, answers[key])) ? answers : null;
+}
+
+function saveApplicationAnswers(industry, answers) {
+  const profile = store.get("jr_application_profile", null);
+  const experience = industry ? {...profile?.experience, [norm(industry)]:answers.experience} : profile?.experience || {};
+  store.set("jr_application_profile", {role:answers.role, time:answers.time, strength:answers.strength, experience});
+}
+
 async function assistantPhone() {
   let device = store.get("jr_assistant_device", "");
   const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
@@ -2509,17 +2525,25 @@ async function checkAssistantAccess(state) {
       state.access = "approval";
     }
   } catch (_) { state.access = "unavailable"; }
-  if (assistant === state && state.step === APPLICATION_QUESTIONS.length && !state.busy && !state.draft) renderAssistant();
+  if (assistant === state && state.step === APPLICATION_QUESTIONS.length && !state.busy && !state.draft) showAssistantDraftOptions(state);
+}
+
+function showAssistantDraftOptions(state) {
+  if (state.autoDraft && state.access === "ready") generateAssistantDraft(true);
+  else renderAssistant();
 }
 
 function openAssistant(x, trigger) {
   const config = legacyAssistant?.url && legacyAssistant?.code
     ? {url:legacyAssistant.url, credentials:{code:legacyAssistant.code}} : null;
-  assistant = {x, trigger, answers:{}, step:0, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
+  const industry = x.kind && x.kind !== "Website" ? x.kind : specialtyProfile(S.q?.term)?.label || S.q?.term || "";
+  const saved = savedApplicationAnswers(industry);
+  assistant = {x, trigger, industry, answers:saved || {}, step:saved ? APPLICATION_QUESTIONS.length : 0,
+    autoDraft:!!saved, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
   $("assistantCompany").textContent = x.name;
   $("assistantBackdrop").classList.add("open");
   $("assistantSheet").classList.add("open");
-  renderAssistant();
+  showAssistantDraftOptions(assistant);
   if (!config) checkAssistantAccess(assistant);
 }
 function closeAssistant() {
@@ -2542,8 +2566,8 @@ function templateDraft(x, answers) {
   const facts = [experience, strength, availability].filter(Boolean).join(" ");
   return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
 }
-async function aiDraft(config, x, answers) {
-  const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:(x.kind || "").slice(0,80), ...answers});
+async function aiDraft(config, x, industry, answers) {
+  const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
   const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
   if (!reply.ok) return null;
   const parsed = JSON.parse(reply.text);
@@ -2555,11 +2579,12 @@ async function generateAssistantDraft(useAI) {
   const state = assistant;
   if (!state || state.busy) return;
   const config = useAI && state.access === "ready" ? state.config : null;
-  const {x, answers} = state;
+  const {x, industry, answers} = state;
+  state.autoDraft = false;
   state.busy = true;
   renderAssistant();
   const contact = needsContactScan(x) ? scanContact(x).then(() => { save(); rerenderCard(x); updateCrawlBtn(); }) : Promise.resolve();
-  const generated = config ? await aiDraft(config, x, answers).catch(() => null) : null;
+  const generated = config ? await aiDraft(config, x, industry, answers).catch(() => null) : null;
   await contact;
   if (assistant !== state) return;
   const content = generated || templateDraft(x, answers);
@@ -2569,7 +2594,7 @@ async function generateAssistantDraft(useAI) {
   renderAssistant();
 }
 function renderAssistant() {
-  const {x, step, answers, busy, draft, access, config} = assistant;
+  const {x, step, answers, busy, draft, access, config, industry} = assistant;
   const box = $("assistantContent");
   if (busy) {
     box.innerHTML = '<p class="assistant-step" role="status">Entwurf wird vorbereitet<span class="dots"></span></p>';
@@ -2580,7 +2605,7 @@ function renderAssistant() {
       <label class="lbl" for="draftBody">E-Mail</label><textarea id="draftBody"></textarea>
       <p class="hint">${mail ? `An ${esc(mail)}` : "Keine E-Mail-Adresse gefunden. Du kannst den Entwurf kopieren."}</p>
       <button class="primary" type="button" data-ass="mail" ${mail ? "" : "disabled"}>In Mail öffnen</button>
-      <div class="assistant-nav"><button class="link" type="button" data-ass="answers">Antworten ändern</button><button class="link" type="button" data-ass="copy">Kopieren</button></div>`;
+      <div class="assistant-nav"><button class="link" type="button" data-ass="answers">Profil ändern</button><button class="link" type="button" data-ass="copy">Kopieren</button></div>`;
     $("draftSubject").value = draft.subject;
     $("draftBody").value = draft.body;
   } else if (step === APPLICATION_QUESTIONS.length) {
@@ -2591,12 +2616,15 @@ function renderAssistant() {
       ${access === "approval" ? `<p class="hint">Dieses Handy braucht eine einmalige KI-Freigabe.</p><code class="assistant-code">${esc(config.activation)}</code>
         <div class="assistant-nav"><button class="link" type="button" data-ass="share-code">Freischaltcode teilen</button><button class="link" type="button" data-ass="recheck">Freigabe prüfen</button></div>` : ""}
       <button class="${access === "ready" ? "ghost" : "primary"}" type="button" data-ass="template">Entwurf aus Vorlage erstellen</button>
-      <div class="assistant-nav"><button class="link" type="button" data-ass="back">Zurück</button></div>`;
+      <div class="assistant-nav"><button class="link" type="button" data-ass="answers">Profil ändern</button></div>`;
   } else {
     const question = APPLICATION_QUESTIONS[step];
+    const label = question.key === "experience" && industry ? `Hast du Erfahrung im Bereich ${industry}?` : question.label;
     const buttons = Object.entries(question.options).map(([value, label]) =>
       `<button class="ghost" type="button" data-answer="${value}" aria-pressed="${answers[question.key] === value}">${label}</button>`).join("");
-    box.innerHTML = `<h3 class="assistant-step" tabindex="-1">${question.label}</h3><div class="assistant-choices">${buttons}</div>
+    box.innerHTML = `<h3 class="assistant-step" tabindex="-1">${esc(label)}</h3>
+      ${step === 0 ? '<p class="hint">Dein Profil bleibt auf diesem Gerät gespeichert. JobRadar nutzt deine Antworten für neue Bewerbungsentwürfe.</p>' : ""}
+      <div class="assistant-choices">${buttons}</div>
       <div class="assistant-nav"><button class="link" type="button" data-ass="back" ${step ? "" : "hidden"}>Zurück</button><span class="hint">${step + 1} / ${APPLICATION_QUESTIONS.length}</span></div>`;
   }
   $("assistantSheet").scrollTop = 0;
@@ -2745,13 +2773,17 @@ $("assistantContent").onclick = async e => {
   if (value && question && Object.hasOwn(question.options, value)) {
     assistant.answers[question.key] = value;
     assistant.step++;
-    renderAssistant();
+    if (assistant.step === APPLICATION_QUESTIONS.length) {
+      saveApplicationAnswers(assistant.industry, assistant.answers);
+      showAssistantDraftOptions(assistant);
+    } else renderAssistant();
   } else if (button.dataset.ass === "back") {
     assistant.step--;
     renderAssistant();
   } else if (button.dataset.ass === "answers") {
     assistant.draft = null;
     assistant.step = 0;
+    assistant.autoDraft = true;
     renderAssistant();
   } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
     await generateAssistantDraft(button.dataset.ass === "ai");
