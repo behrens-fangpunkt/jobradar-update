@@ -1184,7 +1184,10 @@ async function regionalSearch(term, loc, km, profile) {
     const categories = types.split(",");
     const relevance = matchingScore(profile, term, name, categories);
     if (!relevance) continue;
-    const kind = categories.map(c => CREATIVE_LABELS[c] || KIND_DE[c]).find(Boolean) || "";
+    const labelFor = category => CREATIVE_LABELS[category] || KIND_DE[category];
+    const specific = categories.filter(c => c !== "design_service" && labelFor(c));
+    const category = specific.find(c => profile?.primary.includes(c)) || specific[0] || categories[0];
+    const kind = labelFor(category) || "";
     matches.push({id:"overture:" + id, source:"overture", name, lat, lon, website, address, kind,
                   km:Math.round(distance * 10) / 10, relevance, email:"", phone:""});
   }
