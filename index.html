@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="5">
+<meta name="jr-version" content="6">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -901,9 +901,10 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 
 <div class="viewseg hidden" id="viewseg"><button data-v="list"><svg><use href="#i-list"/></svg>Liste</button><button data-v="map"><svg><use href="#i-map"/></svg>Karte</button></div>
 <div class="filters hidden" id="filters"></div>
-<div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
-  <div class="legend"><span><i style="background:#0E7C55"></i>Jobseite</span><span><i style="background:#4F46E5"></i>Kontakt</span><span><i style="background:#9C9AB0"></i>noch offen</span><span><i style="background:#D6D4E3"></i>beworben</span></div></div>
 <div class="status" id="status"></div>
+<div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
+  <div class="legend"><span><i style="background:#0E7C55"></i>Jobseite</span><span><i style="background:#4F46E5"></i>Kontakt</span><span><i style="background:#9C9AB0"></i>noch offen</span><span><i style="background:#D6D4E3"></i>beworben</span></div>
+  <button class="link" id="tileBtn" style="font-size:13px;padding:6px 2px">Karte lädt nicht richtig? Anderen Kartenstil nehmen (<span id="tileName"></span>)</button></div>
 <div class="loading hidden" id="loading">
   <div class="radar"><i></i><i></i><i></i><div class="sweep"></div><span class="blip"></span><span class="blip"></span><span class="blip"></span><div class="core"></div></div>
   <b id="ldT">Adresse wird gesucht</b><span id="ldS"></span>
@@ -1468,6 +1469,24 @@ function statusSummary(){
 
 /* ---------- Aktionen */
 /* ---------- Karte */
+// Kartenhintergruende ohne API-Key. Faellt einer aus, wird automatisch der naechste genommen.
+const TILES = [
+  {name: "OpenStreetMap", url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png", max: 19, attr: "© OpenStreetMap-Mitwirkende"},
+  {name: "OSM Deutschland", url: "https://tile.openstreetmap.de/{z}/{x}/{y}.png", max: 18, attr: "© OpenStreetMap-Mitwirkende"},
+  {name: "Esri", url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", max: 19, attr: "© Esri · © OpenStreetMap"}
+];
+let tileIdx = Math.min(store.get("jr_tiles", 0), TILES.length - 1), tileLayer = null, tileErr = 0, tileOk = 0;
+function setTiles(i){
+  if (tileLayer) map.removeLayer(tileLayer);
+  tileIdx = i; tileErr = 0; tileOk = 0; store.set("jr_tiles", i);
+  const t = TILES[i];
+  tileLayer = L.tileLayer(t.url, {maxZoom: t.max, attribution: t.attr}).addTo(map);
+  tileLayer.on("tileload", () => { tileOk++; });
+  tileLayer.on("tileerror", () => {
+    if (++tileErr >= 4 && tileOk === 0 && tileIdx < TILES.length - 1) setTiles(tileIdx + 1);
+  });
+  if ($("tileName")) $("tileName").textContent = t.name;
+}
 let map = null, mapLayer = null, mapSel = null, mapFitKey = "";
 const pinColor = x => isApplied(x) ? "#D6D4E3" : (x.c && x.c.jobs) ? "#0E7C55" : (emailsOf(x).length || phonesOf(x).length) ? "#4F46E5" : "#9C9AB0";
 function center(){
@@ -1482,8 +1501,7 @@ function renderMap(items){
     map = L.map("map", {zoomControl: true, attributionControl: true, zoomSnap: 0.25}).setView([c0.lat, c0.lon], 13);
     map.attributionControl.setPrefix(false);
     map.zoomControl.setPosition("bottomright");
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-      {subdomains: "abcd", maxZoom: 19, attribution: "© OpenStreetMap · © CARTO"}).addTo(map);
+    setTiles(tileIdx);
     mapLayer = L.layerGroup().addTo(map);
     map.on("click", () => { if (mapSel) { mapSel = null; render(); } });
   }
@@ -1648,6 +1666,7 @@ $("list").onclick = e => {
   if (x) action(x, b.dataset.a);
 };
 $("crawl").onclick = doCrawl;
+$("tileBtn").onclick = () => { if (map) { setTiles((tileIdx + 1) % TILES.length); toast("Kartenstil: " + TILES[tileIdx].name); } };
 $("viewseg").onclick = e => { const b = e.target.closest("button"); if (!b) return; view = b.dataset.v; store.set("jr_view", view); render(); };
 $("share").onclick = shareList;
 $("gear").onclick = openSheet;
