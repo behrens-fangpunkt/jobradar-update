@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="8">
+<meta name="jr-version" content="9">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -921,7 +921,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
       <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
     </form>
   </details>
-  <a id="overtureCredit" class="hidden" href="https://docs.overturemaps.org/attribution/#places">Firmendaten Leipzig · Overture Maps Foundation</a>
+  <a id="overtureCredit" class="hidden" href="https://docs.overturemaps.org/attribution/#places">Regionale Firmendaten · Overture Maps Foundation</a>
 </section>
 <div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
   <div class="legend"><span><i style="background:#0E7C55"></i>Jobseite</span><span><i style="background:#4F46E5"></i>Kontakt</span><span><i style="background:#9C9AB0"></i>noch offen</span><span><i style="background:#D6D4E3"></i>beworben</span></div>
@@ -1128,9 +1128,11 @@ const CREATIVE_LABELS = {
   animation_studio:"Animationsstudio", interior_design:"Innenarchitektur", product_design:"Produktdesign",
   advertising_agency:"Werbeagentur", web_designer:"Webdesign", video_film_production:"Filmproduktion"
 };
-const LEIPZIG_PLACES_BOUNDS = [51.085, 12.0, 51.56, 12.76];
-const LEIPZIG_PLACES_FILE = "places/leipzig-2026-11-18.json";
-let leipzigPlaces;
+const REGIONAL_PLACE_INDEXES = [
+  {bounds:[51.085, 12.0, 51.56, 12.76], file:"places/leipzig-2026-11-18.json"},
+  {bounds:[51.78, 8.12, 52.26, 8.94], file:"places/bielefeld-2026-11-18.json"}
+];
+const regionalPlaces = new Map();
 
 function searchText(value) {
   return norm(value).replace(/[^a-z0-9]+/g, " ").trim();
@@ -1163,21 +1165,27 @@ function rankBusinesses(a, b) {
   return (b.relevance || 0) - (a.relevance || 0) || a.km - b.km;
 }
 
-async function regionalSearch(term, loc, km, profile) {
-  const [south, west, north, east] = LEIPZIG_PLACES_BOUNDS;
-  const dLat = km / 111, dLon = km / (111 * Math.cos(loc.lat * Math.PI / 180));
-  if (loc.lat + dLat < south || loc.lat - dLat > north ||
-      loc.lon + dLon < west || loc.lon - dLon > east) return [];
-  if (!leipzigPlaces) {
-    const url = new URL(LEIPZIG_PLACES_FILE, UPDATE_URL).href;
-    leipzigPlaces = request(url, {timeout: 10000, max: 1500000}).then(r => {
+function loadRegionalPlaces(file) {
+  if (!regionalPlaces.has(file)) {
+    const url = new URL(file, UPDATE_URL).href;
+    const load = request(url, {timeout: 10000, max: 1500000}).then(r => {
       if (!r.ok) throw new Error("Firmenindex nicht erreichbar");
       const rows = JSON.parse(r.text);
       if (!Array.isArray(rows)) throw new Error("Firmenindex ungültig");
       return rows;
-    }).catch(() => { leipzigPlaces = null; return []; });
+    }).catch(() => { regionalPlaces.delete(file); return []; });
+    regionalPlaces.set(file, load);
   }
-  const rows = await leipzigPlaces, matches = [];
+  return regionalPlaces.get(file);
+}
+
+async function regionalSearch(term, loc, km, profile) {
+  const dLat = km / 111, dLon = km / (111 * Math.cos(loc.lat * Math.PI / 180));
+  const indexes = REGIONAL_PLACE_INDEXES.filter(({bounds:[south, west, north, east]}) =>
+    loc.lat + dLat >= south && loc.lat - dLat <= north &&
+    loc.lon + dLon >= west && loc.lon - dLon <= east);
+  const rows = (await Promise.all(indexes.map(index => loadRegionalPlaces(index.file)))).flat();
+  const matches = [];
   for (const [id, name, lat, lon, website, types, address] of rows) {
     const distance = haversine(loc.lat, loc.lon, lat, lon);
     if (distance > km) continue;
@@ -1276,7 +1284,7 @@ function parseElements(data, lat, lon, term = "", profile = null){
 /* ---------- Adresse: Vorschlaege (Photon) + Fallback (Nominatim) */
 function fmtPhoton(f){
   const p = f.properties || {}, c = (f.geometry || {}).coordinates;
-  if (!c) return null;
+  if (!c || p.osm_value === "motorway_junction") return null;
   const city = p.city || p.town || p.village || p.locality || p.county || "";
   let l1;
   if (p.housenumber && p.street) l1 = p.street + " " + p.housenumber;
@@ -1296,11 +1304,11 @@ async function photon(q, limit){
   try { return uniq(JSON.parse(r.text).features.map(fmtPhoton).filter(Boolean), x => x.label); } catch(e){ return null; }
 }
 async function nominatimGeocode(address){
-  const q = new URLSearchParams({format: "jsonv2", limit: "1", q: address, countrycodes: "de,at,ch", addressdetails: "1", "accept-language": "de"});
+  const q = new URLSearchParams({format: "jsonv2", limit: "3", q: address, countrycodes: "de,at,ch", addressdetails: "1", "accept-language": "de"});
   const r = await fetchRetry(NOMINATIM + "?" + q, {timeout: 15000});
   if (!r.ok) return {err: r};
   try {
-    const x = JSON.parse(r.text)[0]; if (!x) return null;
+    const x = JSON.parse(r.text).find(item => item.type !== "motorway_junction"); if (!x) return null;
     const a = x.address || {};
     const city = a.city || a.town || a.village || a.municipality || "";
     const l1 = [a.road || x.name, a.house_number].filter(Boolean).join(" ");
