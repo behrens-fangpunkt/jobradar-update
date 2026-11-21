@@ -1,3 +1,5 @@
+import { handleMail } from "./mail.mjs";
+
 const ANSWERS = {
   role: {minijob:"Minijob", werkstudent:"Werkstudentin", teilzeit:"Teilzeit", praktikum:"Praktikum", offen:"offen"},
   experience: {einstieg:"Berufseinstieg in der Branche", erfahrung:"Erfahrung in der Branche", skip:""},
@@ -15,7 +17,7 @@ function reply(status, data) {
   return Response.json(data, {status, headers:{"Cache-Control":"no-store", "Access-Control-Allow-Origin":"*"}});
 }
 
-async function readForm(request) {
+async function readForm(request, limit = 4096) {
   const reader = request.body?.getReader();
   if (!reader) return null;
   const decoder = new TextDecoder();
@@ -25,7 +27,7 @@ async function readForm(request) {
     const {value, done} = await reader.read();
     if (done) return new URLSearchParams(form + decoder.decode());
     bytes += value.byteLength;
-    if (bytes > 4096) {
+    if (bytes > limit) {
       await reader.cancel();
       return null;
     }
@@ -88,6 +90,7 @@ async function createDraft(facts, apiKey) {
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
+    if (path.startsWith("/mail/")) return handleMail(request, env, reply, readForm);
     if (path !== "/draft" && path !== "/access") return reply(404, {error:"not_found"});
     if (request.method !== "POST") return reply(405, {error:"method_not_allowed"});
     if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") {
