@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="jr-version" content="3">
+<meta name="jr-native" content="2">
+<title>JobRadar</title>
+<style>
+:root{
+  --bg:#F6F5FB;--card:#FFFFFF;--ink:#17162B;--mute:#6B6A80;--line:#E7E5F2;
+  --acc:#4F46E5;--acc-press:#4338CA;--acc-soft:#EEEDFD;--ok:#0E7C55;--ok-soft:#E2F4EC;
+  --gold:#B7791F;--gold-soft:#FDF3E1;--warn:#B4590B;--r:18px;
+  --shadow:0 1px 2px rgba(23,22,43,.04),0 4px 16px rgba(23,22,43,.05);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.45 Roboto,system-ui,-apple-system,"Segoe UI",sans-serif}
+body{padding:0 16px 120px;max-width:640px;margin:0 auto;overscroll-behavior-y:contain}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+input,textarea{font:inherit;color:var(--ink)}
+svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.hidden{display:none!important}
+
+/* Kopf */
+.top{display:flex;align-items:center;gap:12px;padding:18px 2px 14px}
+.logo{width:40px;height:40px;border-radius:12px;background:var(--acc);display:grid;place-items:center;flex:none}
+.logo svg{width:24px;height:24px;stroke:#fff}
+.top h1{font-size:22px;line-height:1.1;margin:0;letter-spacing:-.02em}
+.top p{margin:2px 0 0;color:var(--mute);font-size:13px}
+.icon-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;margin-left:auto;color:var(--mute)}
+.icon-btn:active{background:var(--line)}
+
+/* Suchpanel */
+.panel{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
+.lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);margin:14px 0 7px}
+.lbl:first-child{margin-top:0}
+.field{display:flex;align-items:center;gap:10px;background:var(--bg);border:1.5px solid transparent;border-radius:14px;padding:0 12px;transition:border-color .15s}
+.field:focus-within{border-color:var(--acc);background:#fff}
+.field svg{color:var(--mute)}
+.field input{flex:1;min-width:0;border:0;background:none;outline:none;padding:13px 0;font-size:16px}
+.clear{color:var(--mute);padding:6px;margin-right:-6px}
+.chips{display:flex;gap:8px;overflow-x:auto;margin:10px -16px 0;padding:0 16px 2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;padding:8px 13px;border-radius:99px;background:var(--bg);font-size:14px;font-weight:500;white-space:nowrap}
+.chip.on{background:var(--acc);color:#fff}
+.seg{display:grid;grid-template-columns:repeat(5,1fr);background:var(--bg);border-radius:14px;padding:4px;gap:4px}
+.seg button{padding:9px 0;border-radius:10px;font-weight:600;font-size:14px;color:var(--mute)}
+.seg button.on{background:#fff;color:var(--acc);box-shadow:0 1px 3px rgba(23,22,43,.12)}
+.primary{background:var(--acc);color:#fff;font-weight:600;border-radius:14px;padding:15px 18px;display:flex;align-items:center;justify-content:center;gap:9px;width:100%}
+.primary:active{background:var(--acc-press)}
+.primary:disabled{opacity:.55}
+.primary svg{stroke:#fff}
+#go{margin-top:18px;font-size:16px}
+
+/* Zusammenfassung nach der Suche */
+.summary{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+.summary .ico{width:38px;height:38px;border-radius:12px;background:var(--acc-soft);color:var(--acc);display:grid;place-items:center;flex:none}
+.summary b{display:block;font-size:15px}
+.summary span{display:block;color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.summary div{min-width:0;flex:1}
+.link{color:var(--acc);font-weight:600;padding:8px 4px;flex:none}
+
+/* Filter + Status */
+.filters{display:flex;gap:8px;overflow-x:auto;margin:16px -16px 4px;padding:0 16px;scrollbar-width:none}
+.filters::-webkit-scrollbar{display:none}
+.filters .chip{background:var(--card);box-shadow:var(--shadow)}
+.filters .chip.on{background:var(--ink);color:#fff}
+.filters .chip i{font-style:normal;opacity:.6;margin-left:4px}
+.status{color:var(--mute);font-size:13px;margin:10px 2px 10px;min-height:1px}
+.status.err{color:var(--warn)}
+
+/* Karten */
+.card{background:var(--card);border-radius:var(--r);padding:15px 15px 12px;margin-bottom:10px;box-shadow:var(--shadow);animation:in .25s ease both}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.card.applied{opacity:.62}
+.c-head{display:flex;gap:10px;align-items:flex-start}
+.c-title{flex:1;min-width:0}
+.c-title h3{margin:0;font-size:16.5px;line-height:1.25;letter-spacing:-.01em}
+.c-title p{margin:3px 0 0;color:var(--mute);font-size:13px}
+.dist{flex:none;font-size:12.5px;font-weight:600;color:var(--mute);background:var(--bg);border-radius:99px;padding:3px 9px;font-variant-numeric:tabular-nums}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.badges:empty{display:none}
+.badge{font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;background:var(--bg);color:var(--mute)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.gold{background:var(--gold-soft);color:var(--gold)}
+.badge.done{background:var(--acc-soft);color:var(--acc)}
+.contacts{margin-top:10px;font-size:13.5px;display:grid;gap:3px}
+.contacts div{display:flex;gap:8px;align-items:center;min-width:0}
+.contacts svg{width:15px;height:15px;color:var(--mute)}
+.contacts span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text}
+.note{margin:10px 0 0;color:var(--mute);font-size:13px}
+.note.err{color:var(--warn)}
+.scan{margin-top:12px;height:6px;border-radius:99px;background:linear-gradient(90deg,var(--bg) 0%,var(--acc-soft) 40%,var(--bg) 80%);background-size:200% 100%;animation:sh 1.1s linear infinite}
+@keyframes sh{from{background-position:100% 0}to{background-position:-100% 0}}
+.actions{display:flex;gap:7px;overflow-x:auto;margin:12px -15px 0;padding:0 15px 2px;scrollbar-width:none}
+.actions::-webkit-scrollbar{display:none}
+.act{flex:none;display:flex;align-items:center;gap:6px;padding:9px 12px;border-radius:12px;background:var(--bg);font-size:14px;font-weight:600}
+.act svg{width:17px;height:17px}
+.act:active{background:var(--line)}
+.act.main{background:var(--acc);color:#fff}
+.act.main:active{background:var(--acc-press)}
+.act.done{background:var(--acc-soft);color:var(--acc)}
+
+/* Leer-Zustand */
+.empty{text-align:center;padding:36px 24px;color:var(--mute)}
+.empty .art{width:120px;height:120px;margin:0 auto 14px}
+.empty .art svg{width:120px;height:120px;stroke-width:1.4}
+.empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+
+/* Dock unten */
+.dock{position:fixed;left:0;right:0;bottom:0;padding:12px 16px 16px;background:linear-gradient(180deg,rgba(246,245,251,0) 0%,var(--bg) 35%);display:flex;gap:10px;max-width:640px;margin:0 auto}
+.dock .primary{position:relative;overflow:hidden;box-shadow:0 6px 20px rgba(79,70,229,.35);font-size:15.5px}
+.dock .primary .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.18);transition:width .3s}
+.dock .primary span{position:relative;display:flex;gap:9px;align-items:center}
+.dock .icon-btn{margin:0;width:54px;height:auto;background:var(--card);color:var(--ink);box-shadow:var(--shadow);border-radius:14px}
+
+/* Einstellungen */
+.backdrop{position:fixed;inset:0;background:rgba(23,22,43,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10}
+.backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-width:640px;margin:0 auto;background:var(--card);border-radius:24px 24px 0 0;padding:10px 18px 22px;transform:translateY(105%);visibility:hidden;transition:transform .25s ease,visibility 0s .25s;z-index:11;max-height:90vh;overflow:auto}
+.sheet.open{transform:none;visibility:visible;transition:transform .25s ease}
+.grab{width:40px;height:4px;border-radius:9px;background:var(--line);margin:0 auto 12px}
+.sheet h2{margin:0 0 2px;font-size:19px}
+.sheet .hint{color:var(--mute);font-size:13px;margin:0 0 6px}
+.sheet input,.sheet textarea{width:100%;border:1.5px solid transparent;background:var(--bg);border-radius:12px;padding:12px;outline:none;font-size:15px}
+.sheet input:focus,.sheet textarea:focus{border-color:var(--acc);background:#fff}
+.sheet textarea{min-height:220px;resize:vertical;line-height:1.45}
+.sheet .row2{display:flex;gap:10px;margin-top:16px}
+.ghost{flex:1;padding:14px;border-radius:14px;background:var(--bg);font-weight:600}
+
+.banner{display:flex;align-items:center;gap:10px;background:var(--acc-soft);color:var(--acc);border-radius:14px;padding:10px 10px 10px 14px;margin-bottom:12px;font-weight:600;font-size:14px}
+.banner span{flex:1}
+.banner button{background:var(--acc);color:#fff;border-radius:10px;padding:8px 12px;font-weight:600;font-size:14px}
+.upd{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
+.upd .ghost{width:100%;margin-top:8px}
+.upd .link{display:block;margin:8px auto 0;font-size:14px}
+.toast{position:fixed;left:50%;bottom:96px;transform:translate(-50%,20px);background:var(--ink);color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;transition:.2s;pointer-events:none;z-index:20;max-width:88vw;text-align:center}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/><path d="M12 12l6.4-6.4"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3.5 6.5l8.5 6.5 8.5-6.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><path d="M5 3.5h3.5l1.8 4.5-2.3 1.5a11 11 0 0 0 6.5 6.5l1.5-2.3 4.5 1.8V19a2 2 0 0 1-2 2A17 17 0 0 1 3 5.5a2 2 0 0 1 2-2z"/></symbol>
+  <symbol id="i-case" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M3 13h18"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="i-map" viewBox="0 0 24 24"><path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="M8.2 10.8l7.6-4.1M8.2 13.2l7.6 4.1"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="logo"><svg><use href="#i-radar"/></svg></div>
+  <div><h1>JobRadar</h1><p>Nebenjobs in deiner Nähe</p></div>
+  <button class="icon-btn" id="gear" aria-label="Bewerbungstext"><svg><use href="#i-gear"/></svg></button>
+</header>
+
+<div class="banner hidden" id="banner"><svg><use href="#i-spark"/></svg><span id="bannerT"></span><button id="bannerB">Installieren</button></div>
+
+<section class="panel" id="panel">
+  <label class="lbl" for="b">Branche</label>
+  <div class="field"><svg><use href="#i-search"/></svg>
+    <input id="b" placeholder="z. B. Kino, Café, Supermarkt" autocomplete="off" enterkeyhint="next">
+    <button class="clear hidden" id="bx" aria-label="Leeren"><svg><use href="#i-x"/></svg></button></div>
+  <div class="chips" id="chips"></div>
+
+  <label class="lbl" for="a">Von wo aus?</label>
+  <div class="field"><svg><use href="#i-pin"/></svg>
+    <input id="a" placeholder="Straße Nr, Stadt" autocomplete="street-address" enterkeyhint="search"></div>
+
+  <label class="lbl">Umkreis</label>
+  <div class="seg" id="seg"></div>
+
+  <button class="primary" id="go"><svg><use href="#i-radar"/></svg>Firmen finden</button>
+</section>
+
+<section class="summary hidden" id="summary">
+  <div class="ico"><svg><use href="#i-radar"/></svg></div>
+  <div><b id="sumT"></b><span id="sumS"></span></div>
+  <button class="link" id="edit">Ändern</button>
+</section>
+
+<div class="filters hidden" id="filters"></div>
+<div class="status" id="status"></div>
+<div id="list"></div>
+
+<div class="empty" id="empty">
+  <div class="art"><svg viewBox="0 0 24 24" style="color:#C9C6F5"><use href="#i-radar"/></svg></div>
+  <b>Wo soll's hingehen?</b>
+  Branche wählen, Adresse eintippen, Umkreis festlegen – JobRadar zeigt dir alle passenden Läden und sucht danach Jobseiten und Kontakte raus.
+</div>
+
+<div class="dock hidden" id="dock">
+  <button class="primary" id="crawl"><i class="fill" id="fill"></i><span><svg><use href="#i-spark"/></svg><b id="crawlL">Kontakte finden</b></span></button>
+  <button class="icon-btn" id="share" aria-label="Liste teilen"><svg><use href="#i-share"/></svg></button>
+</div>
+
+<div class="backdrop" id="bd"></div>
+<div class="sheet" id="sheet">
+  <div class="grab"></div>
+  <h2>Bewerbungsmail</h2>
+  <p class="hint">Wird beim Tippen auf „Bewerben" automatisch in die Mail-App eingesetzt. {firma} wird durch den Firmennamen ersetzt.</p>
+  <label class="lbl" for="tName">Dein Name</label>
+  <input id="tName" placeholder="Vor- und Nachname">
+  <label class="lbl" for="tSubj">Betreff</label>
+  <input id="tSubj">
+  <label class="lbl" for="tBody">Text</label>
+  <textarea id="tBody"></textarea>
+  <p class="hint" style="margin-top:8px">Lebenslauf kannst du in der Mail-App vor dem Senden anhängen.</p>
+  <div class="row2"><button class="ghost" id="tReset">Standard</button><button class="primary" id="tSave" style="flex:2">Speichern</button></div>
+  <div class="upd hidden" id="upd">
+    <label class="lbl">App-Update</label>
+    <p class="hint" id="verInfo"></p>
+    <button class="ghost" id="upBtn">Nach Updates suchen</button>
+    <p class="hint" id="upMsg" style="text-align:center;margin-top:8px"></p>
+    <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ============================================================ Daten */
+const UA = "JobRadar/1.0 (Android; private Nebenjobsuche)";
+const BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36";
+const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter","https://overpass.private.coffee/api/interpreter"];
+const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const BUSINESS_KEYS = "amenity|shop|leisure|tourism|office|craft";
+const RADII = [2,5,10,15,25];
+const POPULAR = ["Kino","Café","Restaurant","Bar","Supermarkt","Drogerie","Apotheke","Bäckerei","Buchhandlung","Kleidung","Fitnessstudio","Hotel","Museum","Theater","Eisdiele","Kaufhaus"];
+
+const BRANCHEN = [
+ [["Kino"],['[amenity=cinema]']],
+ [["Café","Cafe","Kaffee"],['[amenity=cafe]']],
+ [["Restaurant","Gastronomie","Gastro"],['[amenity=restaurant]']],
+ [["Bar","Kneipe","Pub","Biergarten"],['[amenity~"^(bar|pub|biergarten)$"]']],
+ [["Imbiss","Fast Food","Fastfood"],['[amenity=fast_food]']],
+ [["Eisdiele","Eiscafe"],['[amenity=ice_cream]','[shop=ice_cream]']],
+ [["Club","Disco","Nachtclub"],['[amenity=nightclub]']],
+ [["Supermarkt","Lebensmittel"],['[shop=supermarket]']],
+ [["Bäckerei","Bäcker"],['[shop=bakery]']],
+ [["Getränkemarkt"],['[shop=beverages]']],
+ [["Kiosk","Späti"],['[shop~"^(kiosk|convenience)$"]']],
+ [["Drogerie"],['[shop=chemist]']],
+ [["Apotheke"],['[amenity=pharmacy]']],
+ [["Buchhandlung","Bücher","Buchladen"],['[shop=books]']],
+ [["Kleidung","Mode","Bekleidung","Schuhe"],['[shop~"^(clothes|shoes|fashion_accessories)$"]']],
+ [["Kaufhaus","Einkaufszentrum"],['[shop~"^(department_store|mall)$"]']],
+ [["Elektronik","Handyladen"],['[shop~"^(electronics|computer|mobile_phone)$"]']],
+ [["Möbel","Möbelhaus"],['[shop=furniture]']],
+ [["Baumarkt"],['[shop=doityourself]']],
+ [["Gartencenter","Gärtnerei"],['[shop=garden_centre]']],
+ [["Blumenladen","Florist","Blumen"],['[shop=florist]']],
+ [["Spielwaren","Spielzeug"],['[shop=toys]']],
+ [["Sportgeschäft","Sportartikel"],['[shop=sports]']],
+ [["Tierhandlung","Zoohandlung"],['[shop=pet]']],
+ [["Optiker"],['[shop=optician]']],
+ [["Friseur"],['[shop=hairdresser]']],
+ [["Fitnessstudio","Fitness","Gym"],['[leisure=fitness_centre]']],
+ [["Schwimmbad","Schwimmhalle","Freibad"],['[leisure~"^(water_park|swimming_pool)$"][access!=private]']],
+ [["Freizeit","Bowling","Escape Room","Trampolinhalle","Minigolf"],['[leisure~"^(bowling_alley|escape_game|trampoline_park|amusement_arcade|miniature_golf)$"]']],
+ [["Hotel","Hostel"],['[tourism~"^(hotel|hostel)$"]']],
+ [["Museum"],['[tourism=museum]']],
+ [["Theater"],['[amenity=theatre]']],
+ [["Zoo","Tierpark"],['[tourism=zoo]']],
+ [["Bibliothek","Bücherei"],['[amenity=library]']],
+ [["Kita","Kindergarten"],['[amenity=kindergarten]']],
+ [["Nachhilfe","Sprachschule"],['[amenity~"^(prep_school|language_school)$"]','[office=tutoring]']],
+ [["Tankstelle"],['[amenity=fuel]']],
+ [["Post","Paketshop"],['[amenity=post_office]']],
+ [["Tierarzt"],['[amenity=veterinary]']],
+ [["Arztpraxis","Arzt"],['[amenity~"^(doctors|dentist|clinic)$"]']],
+ [["Büro","IT","Agentur"],['[office~"^(it|company|advertising_agency|architect)$"]']],
+];
+const KIND_DE = {cinema:"Kino",cafe:"Café",restaurant:"Restaurant",bar:"Bar",pub:"Kneipe",biergarten:"Biergarten",
+ fast_food:"Imbiss",ice_cream:"Eisdiele",nightclub:"Club",supermarket:"Supermarkt",bakery:"Bäckerei",beverages:"Getränkemarkt",
+ kiosk:"Kiosk",convenience:"Späti",chemist:"Drogerie",pharmacy:"Apotheke",books:"Buchhandlung",clothes:"Mode",shoes:"Schuhe",
+ fashion_accessories:"Accessoires",department_store:"Kaufhaus",mall:"Einkaufszentrum",electronics:"Elektronik",computer:"Computer",
+ mobile_phone:"Handyladen",furniture:"Möbel",doityourself:"Baumarkt",garden_centre:"Gartencenter",florist:"Blumenladen",toys:"Spielwaren",
+ sports:"Sport",pet:"Tierbedarf",optician:"Optiker",hairdresser:"Friseur",fitness_centre:"Fitnessstudio",water_park:"Bad",
+ swimming_pool:"Schwimmbad",bowling_alley:"Bowling",escape_game:"Escape Room",trampoline_park:"Trampolinhalle",
+ amusement_arcade:"Spielhalle",miniature_golf:"Minigolf",hotel:"Hotel",hostel:"Hostel",museum:"Museum",theatre:"Theater",
+ zoo:"Zoo",library:"Bibliothek",kindergarten:"Kita",prep_school:"Nachhilfe",language_school:"Sprachschule",tutoring:"Nachhilfe",
+ fuel:"Tankstelle",post_office:"Post",veterinary:"Tierarzt",doctors:"Arztpraxis",dentist:"Zahnarzt",clinic:"Klinik",
+ it:"IT",company:"Firma",advertising_agency:"Agentur",architect:"Architektur"};
+
+const CONTACT_KW = ["impressum","imprint","kontakt","contact","ueber-uns","about"];
+const JOB_KW = ["karriere","career","jobs","job","stellen","bewerb","mitarbeiter-gesucht","arbeiten-bei","ausbildung","vacanc","join"];
+const HINT_KW = ["Aushilfe","Minijob","Werkstudent","Studentenjob","Nebenjob","Teilzeit","Stellenangebot","Initiativbewerbung","wir suchen","Verstärkung"];
+const BAD_MAIL = ["sentry","wixpress","example.","domain.","@2x","@3x","muster","deine@","ihre@","name@","email@","godaddy","schema.org"];
+const BAD_EXT = [".png",".jpg",".jpeg",".gif",".svg",".webp",".js",".css"];
+const MAIL_PRIO = ["bewerb","job","karriere","career","personal","hr@","recruit","info","kontakt","contact","office","mail","hallo","hello"];
+const SOCIAL = /(^|\.)(facebook|instagram|fb|tiktok|linktr|twitter|x)\.(com|ee|me)$/i;
+
+const DEFAULT_TPL = {
+  name:"",
+  subj:"Bewerbung als Aushilfe (Minijob / Nebenjob)",
+  body:"Guten Tag,\n\nich bin Studentin und suche einen Nebenjob als Aushilfe – {firma} würde mich dabei sehr reizen. Ich bin zuverlässig, lerne schnell und bin zeitlich flexibel, gern auch abends und am Wochenende.\n\nGibt es bei Ihnen aktuell eine Möglichkeit, mitzuarbeiten? Meinen Lebenslauf sende ich gern mit oder reiche ihn nach.\n\nÜber eine kurze Rückmeldung freue ich mich sehr.\n\nViele Grüße\n{name}"
+};
+
+/* ============================================================ Helfer */
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const norm = s => String(s||"").toLowerCase().trim().replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss").replace(/é/g,"e").replace(/\s+/g," ");
+const uniq = (arr, key = x => x) => { const s = new Set(); return arr.filter(x => { const k = key(x); if (s.has(k)) return false; s.add(k); return true; }); };
+const icon = n => `<svg><use href="#i-${n}"/></svg>`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
+
+/* ---------- Netzwerk: in der App ueber die Java-Bruecke (kein CORS), sonst fetch() */
+const pending = {}; let seq = 0;
+window.__nativeDone = (id, res) => { const p = pending[id]; if (p) { delete pending[id]; p(res); } };
+function request(url, {method = "GET", body = "", ua = UA, timeout = 15000, max = 800000} = {}){
+  if (window.Native && Native.request) {
+    return new Promise(resolve => {
+      const id = "r" + (++seq);
+      pending[id] = resolve;
+      Native.request(id, url, method, body, ua, timeout, max);
+    });
+  }
+  const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeout);
+  return fetch(url, {method, body: method === "POST" ? body : undefined, signal: ctl.signal,
+      headers: method === "POST" ? {"Content-Type":"application/x-www-form-urlencoded"} : {}})
+    .then(async r => ({ok: r.ok, status: r.status, url: r.url || url, text: await r.text()}))
+    .catch(e => ({ok:false, status:0, error: String(e && e.name || e)}))
+    .finally(() => clearTimeout(t));
+}
+function openUrl(u){ if (window.Native && Native.open) Native.open(u); else window.open(u, "_blank"); }
+
+/* ============================================================ Suche */
+function filtersFor(term){
+  const t = norm(term), out = [];
+  for (const [names, flt] of BRANCHEN) {
+    for (let n of names) {
+      n = norm(n);
+      if (t === n || (t.length >= 4 && (t.includes(n) || n.includes(t)))) { out.push(...flt); break; }
+    }
+  }
+  return out;
+}
+function buildQuery(term, lat, lon, radiusM){
+  const around = `(around:${Math.round(radiusM)},${lat.toFixed(6)},${lon.toFixed(6)})`;
+  const parts = filtersFor(term).map(f => `nwr${around}${f}[name];`);
+  const safe = term.trim().replace(/["\\]/g, "").replace(/[\[\](){}.*+?^$|]/g, "\\\\$&");
+  if (safe) parts.push(`nwr${around}[name~"${safe}",i][~"^(${BUSINESS_KEYS})$"~"."];`);
+  return `[out:json][timeout:45];(${parts.join("")});out center tags 400;`;
+}
+function haversine(a, b, c, d){
+  const r = x => x * Math.PI / 180, p1 = r(a), p2 = r(c);
+  const h = Math.sin((p2-p1)/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(r(d-b)/2)**2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+function parseElements(data, lat, lon){
+  const out = [], seen = new Set();
+  for (const el of (data.elements || [])) {
+    const t = el.tags || {};
+    const la = el.lat != null ? el.lat : (el.center || {}).lat;
+    const lo = el.lon != null ? el.lon : (el.center || {}).lon;
+    if (!t.name || la == null) continue;
+    if (t.disused === "yes" || Object.keys(t).some(k => /^(disused|abandoned|was):/.test(k))) continue;
+    const street = [t["addr:street"], t["addr:housenumber"]].filter(Boolean).join(" ");
+    const city = [t["addr:postcode"], t["addr:city"]].filter(Boolean).join(" ");
+    const key = norm(t.name) + "|" + (norm(street) || la.toFixed(3) + "," + lo.toFixed(3));
+    if (seen.has(key)) continue; seen.add(key);
+    const kk = BUSINESS_KEYS.split("|").find(k => t[k]);
+    const kind = kk ? t[kk].split(";")[0] : "";
+    out.push({
+      id: key, name: t.name, kind: KIND_DE[kind] || kind.replace(/_/g," "),
+      address: [street, city].filter(Boolean).join(", "),
+      km: Math.round(haversine(lat, lon, la, lo) * 10) / 10,
+      website: t.website || t["contact:website"] || t.url || "",
+      phone: t.phone || t["contact:phone"] || "",
+      email: t.email || t["contact:email"] || "",
+      lat: la, lon: lo
+    });
+  }
+  return out.sort((x, y) => x.km - y.km);
+}
+async function geocode(address){
+  const q = new URLSearchParams({format:"json", limit:"1", q:address, countrycodes:"de,at,ch"});
+  const r = await request(NOMINATIM + "?" + q, {timeout: 15000});
+  if (!r.ok) throw new Error(r.status === 0 ? "Keine Internetverbindung?" : "Adresssuche fehlgeschlagen (" + r.status + ")");
+  const res = JSON.parse(r.text);
+  if (!res.length) throw new Error("Adresse nicht gefunden. Mit Stadt probieren, z. B. „Kantstraße 45, Leipzig“.");
+  return {lat: +res[0].lat, lon: +res[0].lon, label: res[0].display_name};
+}
+async function search(term, address, km){
+  const g = await geocode(address);
+  const data = encodeURIComponent(buildQuery(term, g.lat, g.lon, km * 1000));
+  const errs = [];
+  // Jeder Server: erst GET, dann POST. Zweite Runde mit Pause, falls alle kurz ueberlastet sind.
+  for (let round = 0; round < 2; round++) {
+    for (const ep of OVERPASS) {
+      for (const method of ["GET", "POST"]) {
+        const r = method === "GET"
+          ? await request(ep + "?data=" + data, {timeout: 60000, max: 20000000})
+          : await request(ep, {method: "POST", body: "data=" + data, timeout: 60000, max: 20000000});
+        if (r.ok) {
+          try { return {...g, known: filtersFor(term).length > 0, results: parseElements(JSON.parse(r.text), g.lat, g.lon)}; }
+          catch(e){ errs.push(new URL(ep).hostname + ": Antwort unlesbar"); continue; }
+        }
+        errs.push(new URL(ep).hostname.replace(/^overpass[.-]/, "") + " " + method + ": " + (r.status || r.error || "keine Verbindung"));
+        if (r.status === 0 && /UnknownHost/.test(r.error || "")) break; // Server nicht auffindbar → POST sparen
+      }
+    }
+    if (round === 0) await sleep(3000);
+  }
+  throw new Error("Kartenserver nicht erreichbar. Details: " + uniq(errs).join(" · "));
+}
+
+/* ============================================================ Crawler */
+function cleanMail(m){
+  try { m = decodeURIComponent(m); } catch(e){}
+  m = m.trim().replace(/^[.,;:<>()\[\]"']+|[.,;:<>()\[\]"']+$/g, "").toLowerCase();
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(m)) return null;
+  if (BAD_EXT.some(e => m.endsWith(e)) || BAD_MAIL.some(b => m.includes(b))) return null;
+  return m;
+}
+function extract(html){
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  doc.querySelectorAll("script,style,noscript,template,svg").forEach(e => e.remove());
+  const links = [...doc.querySelectorAll("a[href]")].map(a => [a.getAttribute("href").trim(), (a.textContent || "").replace(/\s+/g," ").trim()]);
+  const parts = [];
+  if (doc.body) {
+    const w = doc.createTreeWalker(doc.body, 4 /* NodeFilter.SHOW_TEXT */);
+    let n; while ((n = w.nextNode())) parts.push(n.nodeValue);
+  }
+  let text = parts.join(" ");
+  text = text.replace(/\s*[\[({]\s*(?:at|ät|a)\s*[\])}]\s*/gi, "@").replace(/\s*[\[({]\s*(?:dot|punkt)\s*[\])}]\s*/gi, ".");
+  let mails = [], phones = [];
+  for (const [href] of links) {
+    const low = href.toLowerCase();
+    if (low.startsWith("mailto:")) mails.push(href.slice(7).split("?")[0]);
+    else if (low.startsWith("tel:")) { try { phones.push(decodeURIComponent(href.slice(4))); } catch(e){ phones.push(href.slice(4)); } }
+  }
+  mails.push(...(text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) || []));
+  const re = /(?:Tel(?:efon)?|Fon|Phone|Mobil)\.?\s*:?\s*((?:\+|0)\d[\d\s\/().\-–]{5,20}\d)/gi; let m;
+  while ((m = re.exec(text))) phones.push(m[1]);
+  mails = mails.map(cleanMail).filter(Boolean);
+  phones = phones.map(p => p.replace(/\s+/g," ").trim()).filter(p => p.replace(/\D/g,"").length >= 6);
+  const low = text.toLowerCase();
+  const hints = HINT_KW.filter(h => low.includes(h.toLowerCase()));
+  return {links, mails, phones, hints};
+}
+const baseDomain = h => String(h||"").toLowerCase().split(".").slice(-2).join(".");
+async function crawl(site){
+  let url = /^https?:\/\//i.test(site) ? site : "https://" + site;
+  const res = {emails:[], phones:[], jobs:"", hints:[], error:""};
+  let host = ""; try { host = new URL(url).hostname; } catch(e){ res.error = "Ungültige Webseite"; return res; }
+  if (SOCIAL.test(host)) { res.error = "Nur Social-Media-Seite hinterlegt"; return res; }
+  let r = await request(url, {ua: BROWSER_UA, timeout: 12000});
+  if (!r.ok && url.startsWith("https://")) { const r2 = await request("http://" + url.slice(8), {ua: BROWSER_UA, timeout: 12000}); if (r2.ok) r = r2; }
+  if (!r.ok) { res.error = r.status ? "Webseite antwortet nicht (" + r.status + ")" : "Webseite nicht erreichbar"; return res; }
+  const final = r.url || url;
+  const home = extract(r.text);
+  let mails = home.mails, phones = home.phones, hints = home.hints, jobMails = [];
+  const hd = baseDomain(new URL(final).hostname);
+  const jobs = [], contact = [];
+  for (const [href, txt] of home.links) {
+    if (!href || /^(mailto:|tel:|javascript:|#)/i.test(href)) continue;
+    let full; try { full = new URL(href, final); } catch(e){ continue; }
+    if (!/^https?:$/.test(full.protocol) || /\.(pdf|jpe?g|png|zip|docx?)$/i.test(full.pathname)) continue;
+    full.hash = "";
+    const probe = norm(full.pathname + " " + full.hostname + " " + txt);
+    if (JOB_KW.some(k => new RegExp("(^|[^a-z])" + k).test(probe))) jobs.push(full.href);
+    else if (baseDomain(full.hostname) === hd && CONTACT_KW.some(k => probe.includes(k))) contact.push(full.href);
+  }
+  const J = uniq(jobs), C = uniq(contact).sort((a, b) => (/impress|kontakt/i.test(b) ? 1 : 0) - (/impress|kontakt/i.test(a) ? 1 : 0));
+  if (J.length) res.jobs = J[0];
+  const targets = J.slice(0, 2).map(u => ["j", u]).concat(C.slice(0, 3).map(u => ["c", u]))
+                   .filter(([, u]) => u.replace(/\/$/, "") !== final.replace(/\/$/, ""));
+  const subs = await Promise.all(targets.map(([k, u]) => request(u, {ua: BROWSER_UA, timeout: 10000}).then(x => [k, x])));
+  for (const [k, x] of subs) {
+    if (!x.ok) continue;
+    const e = extract(x.text);
+    (k === "j" ? jobMails : mails).push(...e.mails);
+    phones.push(...e.phones); hints.push(...e.hints);
+  }
+  const all = uniq(jobMails.concat(mails));
+  const prio = m => { const i = MAIL_PRIO.findIndex(k => m.includes(k)); return i < 0 ? MAIL_PRIO.length : i; };
+  res.emails = all.map((m, i) => [m, i]).sort((a, b) => prio(a[0]) - prio(b[0]) || a[1] - b[1]).map(x => x[0]).slice(0, 4);
+  res.phones = uniq(phones, p => p.replace(/\D/g,"").slice(-8)).slice(0, 2);
+  res.hints = uniq(hints).slice(0, 5);
+  return res;
+}
+
+/* ============================================================ Update */
+const APP_VERSION = +((document.querySelector('meta[name="jr-version"]') || {}).content || 0);
+const UPDATE_URL = "https://raw.githubusercontent.com/behrens-fangpunkt/jobradar-update/main/index.html";
+const hasNative = !!(window.Native && Native.nativeVersion);
+(function restoreStash(){
+  if (!hasNative) return;
+  try { const s = Native.takeStash(); if (s) { const o = JSON.parse(s); for (const k in o) localStorage.setItem(k, o[k]); } } catch(e){}
+})();
+let pendingUpdate = null;
+function stashStorage(){
+  const d = {};
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); d[k] = localStorage.getItem(k); } } catch(e){}
+  Native.setStash(JSON.stringify(d));
+}
+async function checkUpdate(manual){
+  if (!hasNative) return;
+  if (manual) { $("upBtn").disabled = true; $("upBtn").textContent = "Suche …"; }
+  const r = await request(UPDATE_URL + "?t=" + Date.now(), {timeout: 15000, max: 3000000});
+  let msg = "";
+  if (!r.ok) msg = r.status === 404 ? "Update-Speicher nicht gefunden" : "Update-Server nicht erreichbar";
+  else {
+    const v = +((r.text.match(/name="jr-version"\s+content="(\d+)"/) || [])[1] || 0);
+    const need = +((r.text.match(/name="jr-native"\s+content="(\d+)"/) || [])[1] || 1);
+    if (!v || !r.text.includes("</html>")) msg = "Update-Datei ungültig";
+    else if (v <= APP_VERSION) msg = "Du hast die neueste Version";
+    else if (need > Native.nativeVersion()) msg = `Version ${v} braucht eine neue APK`;
+    else pendingUpdate = {v, html: r.text};
+  }
+  renderUpdate(manual ? msg : "");
+}
+function renderUpdate(msg){
+  if (!hasNative) return;
+  $("upd").classList.remove("hidden");
+  const src = Native.webSource();
+  $("verInfo").textContent = `Installiert: Version ${APP_VERSION}` + (src === "update" ? " (per Update)" : "");
+  $("upBtn").disabled = false;
+  $("upBtn").textContent = pendingUpdate ? `Update auf Version ${pendingUpdate.v} installieren` : "Nach Updates suchen";
+  $("upMsg").textContent = msg || "";
+  $("upReset").classList.toggle("hidden", src !== "update");
+  if (pendingUpdate) { $("bannerT").textContent = `Update verfügbar (Version ${pendingUpdate.v})`; $("banner").classList.remove("hidden"); }
+}
+function installUpdate(){
+  if (!pendingUpdate) return checkUpdate(true);
+  stashStorage();
+  if (Native.saveWeb(pendingUpdate.html)) { toast("Update wird installiert …"); setTimeout(() => Native.reload(), 500); }
+  else toast("Update konnte nicht gespeichert werden");
+}
+
+/* ============================================================ Zustand */
+let S = store.get("jr_last", null) || {q:null, items:[]};
+let filter = "all", running = false;
+let applied = store.get("jr_applied", {});
+let tpl = Object.assign({}, DEFAULT_TPL, store.get("jr_tpl", {}));
+let radius = store.get("jr_rad", 10);
+const save = () => store.set("jr_last", S);
+
+const emailsOf = x => uniq([x.email, ...(x.c ? x.c.emails : [])].filter(Boolean).flatMap(e => e.split(/[;,]\s*/)));
+const phonesOf = x => uniq([x.phone, ...(x.c ? x.c.phones : [])].filter(Boolean).flatMap(p => p.split(/;\s*/)), p => p.replace(/\D/g,"").slice(-8));
+const isApplied = x => !!applied[x.id];
+
+/* ============================================================ UI */
+function renderChips(){
+  const cur = norm($("b").value);
+  $("chips").innerHTML = POPULAR.map(p => `<button class="chip${norm(p) === cur ? " on" : ""}" data-v="${esc(p)}">${esc(p)}</button>`).join("");
+  $("bx").classList.toggle("hidden", !$("b").value);
+}
+function renderSeg(){
+  $("seg").innerHTML = RADII.map(r => `<button class="${r === radius ? "on" : ""}" data-r="${r}">${r} km</button>`).join("");
+}
+function card(x){
+  const mails = emailsOf(x), phones = phonesOf(x), ap = isApplied(x), c = x.c;
+  let b = "";
+  if (c && c.jobs) b += `<span class="badge ok">Jobseite</span>`;
+  if (c) c.hints.slice(0, 4).forEach(h => b += `<span class="badge gold">${esc(h)}</span>`);
+  if (ap) b += `<span class="badge done">✓ Beworben</span>`;
+  let contacts = "";
+  mails.slice(0, 2).forEach(m => contacts += `<div>${icon("mail")}<span>${esc(m)}</span></div>`);
+  phones.slice(0, 1).forEach(p => contacts += `<div>${icon("phone")}<span>${esc(p)}</span></div>`);
+  let note = "";
+  if (x.state === "run") note = `<div class="scan"></div>`;
+  else if (c && c.error) note = `<p class="note err">${esc(c.error)}</p>`;
+  else if (c && !mails.length && !c.jobs) note = `<p class="note">Keine Jobseite oder Mail auf der Webseite gefunden.</p>`;
+  else if (!x.website && !mails.length && !phones.length) note = `<p class="note">Keine Webseite hinterlegt – über Google suchen.</p>`;
+  let a = "";
+  if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
+  if (c && c.jobs) a += `<button class="act${mails.length ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
+  if (phones.length) a += `<button class="act" data-a="call">${icon("phone")}Anrufen</button>`;
+  if (x.website) a += `<button class="act" data-a="web">${icon("globe")}Webseite</button>`;
+  if (!x.website || (c && !mails.length && !c.jobs)) a += `<button class="act" data-a="google">${icon("search")}Google</button>`;
+  a += `<button class="act" data-a="map">${icon("map")}Karte</button>`;
+  a += `<button class="act${ap ? " done" : ""}" data-a="applied">${icon("check")}${ap ? "Beworben" : "Erledigt"}</button>`;
+  return `<article class="card${ap ? " applied" : ""}" data-id="${esc(x.id)}">
+    <div class="c-head"><div class="c-title"><h3>${esc(x.name)}</h3><p>${esc([x.kind, x.address].filter(Boolean).join(" · "))}</p></div>
+    <span class="dist">${x.km.toFixed(1).replace(".", ",")} km</span></div>
+    <div class="badges">${b}</div>${contacts ? `<div class="contacts">${contacts}</div>` : ""}${note}
+    <div class="actions">${a}</div></article>`;
+}
+function visible(){
+  const it = S.items;
+  if (filter === "jobs") return it.filter(x => x.c && x.c.jobs);
+  if (filter === "contact") return it.filter(x => emailsOf(x).length || phonesOf(x).length);
+  if (filter === "open") return it.filter(x => !isApplied(x));
+  if (filter === "applied") return it.filter(isApplied);
+  return it;
+}
+function renderFilters(){
+  const it = S.items, crawled = it.some(x => x.c);
+  const defs = [["all","Alle",it.length]];
+  if (crawled) defs.push(["jobs","Mit Jobseite", it.filter(x => x.c && x.c.jobs).length]);
+  defs.push(["contact","Mit Kontakt", it.filter(x => emailsOf(x).length || phonesOf(x).length).length]);
+  defs.push(["open","Offen", it.filter(x => !isApplied(x)).length]);
+  defs.push(["applied","Beworben", it.filter(isApplied).length]);
+  $("filters").innerHTML = defs.map(([k, l, n]) => `<button class="chip${filter === k ? " on" : ""}" data-f="${k}">${l}<i>${n}</i></button>`).join("");
+}
+function render(){
+  const has = !!S.q;
+  $("panel").classList.toggle("hidden", has && !render.editing);
+  $("summary").classList.toggle("hidden", !has || render.editing);
+  $("filters").classList.toggle("hidden", !S.items.length);
+  $("dock").classList.toggle("hidden", !S.items.length);
+  $("empty").classList.toggle("hidden", has);
+  if (has) {
+    $("sumT").textContent = `${S.q.term} · ${S.q.km} km`;
+    $("sumS").textContent = S.q.origin;
+  }
+  renderFilters();
+  const v = visible();
+  $("list").innerHTML = v.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
+  updateCrawlBtn();
+}
+function rerenderCard(x){
+  const el = document.querySelector(`.card[data-id="${CSS.escape(x.id)}"]`);
+  if (el) { const d = document.createElement("div"); d.innerHTML = card(x); d.firstElementChild.style.animation = "none"; el.replaceWith(d.firstElementChild); }
+}
+function updateCrawlBtn(done, total){
+  const todo = S.items.filter(x => x.website && !x.c).length;
+  const btn = $("crawl");
+  if (running) { $("crawlL").textContent = `Suche Kontakte … ${done || 0}/${total || 0}`; $("fill").style.width = (total ? 100 * done / total : 0) + "%"; btn.disabled = true; return; }
+  $("fill").style.width = "0";
+  btn.disabled = !todo;
+  $("crawlL").textContent = todo ? `Kontakte finden (${todo})` : (S.items.some(x => x.c) ? "Kontakte gefunden ✓" : "Keine Webseiten zum Durchsuchen");
+}
+function setStatus(t, err){ $("status").textContent = t || ""; $("status").classList.toggle("err", !!err); }
+function statusSummary(){
+  const it = S.items; if (!S.q) return setStatus("");
+  if (!it.length) return setStatus("Keine Treffer. Anderen Begriff oder größeren Umkreis probieren.");
+  const w = it.filter(x => x.website).length, c = it.filter(x => x.c).length;
+  let t = `${it.length} Treffer · ${w} mit Webseite`;
+  if (c) t += ` · ${it.filter(x => x.c && x.c.jobs).length} mit Jobseite`;
+  if (!S.q.known) t += " · Branche unbekannt, Suche nach Namen";
+  setStatus(t);
+}
+
+/* ---------- Aktionen */
+async function doSearch(){
+  const term = $("b").value.trim(), addr = $("a").value.trim();
+  if (!term) { $("b").focus(); return toast("Welche Branche?"); }
+  if (!addr) { $("a").focus(); return toast("Von welcher Adresse aus?"); }
+  document.activeElement && document.activeElement.blur();
+  store.set("jr_addr", addr); store.set("jr_rad", radius);
+  const go = $("go"); go.disabled = true; go.lastChild.textContent = "Suche läuft …";
+  setStatus("");
+  try {
+    const r = await search(term, addr, radius);
+    S = {q: {term, addr, km: radius, origin: r.label.split(",").slice(0, 3).join(","), known: r.known}, items: r.results};
+    filter = "all"; render.editing = false; save(); render(); statusSummary();
+    window.scrollTo({top: 0});
+  } catch(e) { setStatus(e.message || String(e), true); }
+  go.disabled = false; go.lastChild.textContent = "Firmen finden";
+}
+async function doCrawl(){
+  if (running) return;
+  const todo = S.items.filter(x => x.website && !x.c);
+  if (!todo.length) return;
+  running = true; let done = 0; const total = todo.length;
+  updateCrawlBtn(0, total);
+  const queue = todo.slice();
+  async function worker(){
+    while (queue.length) {
+      const x = queue.shift(); x.state = "run"; rerenderCard(x);
+      try { x.c = await crawl(x.website); } catch(e) { x.c = {emails:[], phones:[], jobs:"", hints:[], error:"Fehler beim Durchsuchen"}; }
+      delete x.state; done++; rerenderCard(x); updateCrawlBtn(done, total);
+    }
+  }
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  running = false;
+  const score = x => (x.c && x.c.jobs ? 2 : 0) + (emailsOf(x).length ? 1 : 0);
+  S.items.sort((a, b) => score(b) - score(a) || a.km - b.km);
+  save(); render(); statusSummary();
+  const j = S.items.filter(x => x.c && x.c.jobs).length, m = S.items.filter(x => emailsOf(x).length).length;
+  toast(`Fertig: ${j} mit Jobseite, ${m} mit E-Mail`);
+}
+function fill(s, x){ return s.replace(/\{firma\}/g, x.name).replace(/\{name\}/g, tpl.name || ""); }
+function action(x, a){
+  const mails = emailsOf(x), phones = phonesOf(x);
+  if (a === "mail") {
+    if (!tpl.name) toast("Tipp: Oben rechts deinen Namen eintragen");
+    openUrl("mailto:" + mails[0] + "?subject=" + encodeURIComponent(fill(tpl.subj, x)) + "&body=" + encodeURIComponent(fill(tpl.body, x)));
+  }
+  else if (a === "jobs") openUrl(x.c.jobs);
+  else if (a === "call") openUrl("tel:" + phones[0].replace(/[^\d+]/g, ""));
+  else if (a === "web") openUrl(/^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website);
+  else if (a === "google") openUrl("https://www.google.com/search?q=" + encodeURIComponent(`${x.name} ${x.address || ""} Jobs Aushilfe`));
+  else if (a === "map") openUrl(`geo:${x.lat},${x.lon}?q=${x.lat},${x.lon}(${encodeURIComponent(x.name)})`);
+  else if (a === "applied") {
+    if (applied[x.id]) delete applied[x.id]; else applied[x.id] = Date.now();
+    store.set("jr_applied", applied);
+    if (filter === "open" || filter === "applied") render(); else { rerenderCard(x); renderFilters(); }
+    toast(applied[x.id] ? "Als beworben markiert" : "Markierung entfernt");
+  }
+}
+function shareList(){
+  const v = visible();
+  const lines = [`JobRadar – ${S.q.term}, ${S.q.km} km um ${S.q.addr}`, ""];
+  v.forEach(x => {
+    lines.push((isApplied(x) ? "✓ " : "• ") + x.name + ` (${x.km.toFixed(1).replace(".", ",")} km)`);
+    if (x.address) lines.push("  " + x.address);
+    if (x.c && x.c.jobs) lines.push("  Jobs: " + x.c.jobs);
+    emailsOf(x).slice(0, 2).forEach(m => lines.push("  " + m));
+    phonesOf(x).slice(0, 1).forEach(p => lines.push("  " + p));
+    if (!x.c || !x.c.jobs) { if (x.website) lines.push("  " + x.website); }
+    lines.push("");
+  });
+  const text = lines.join("\n");
+  if (window.Native && Native.share) Native.share(text);
+  else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast("Liste kopiert"), () => toast("Teilen nicht möglich"));
+}
+
+/* ---------- Einstellungen */
+function openSheet(){
+  $("tName").value = tpl.name; $("tSubj").value = tpl.subj; $("tBody").value = tpl.body;
+  $("bd").classList.add("open"); $("sheet").classList.add("open");
+}
+function closeSheet(){ $("bd").classList.remove("open"); $("sheet").classList.remove("open"); document.activeElement && document.activeElement.blur(); }
+window.handleBack = function(){
+  if ($("sheet").classList.contains("open")) { closeSheet(); return true; }
+  if (render.editing && S.q) { render.editing = false; render(); return true; }
+  return false;
+};
+
+/* ---------- Events */
+$("b").addEventListener("input", renderChips);
+$("b").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("a").value ? doSearch() : $("a").focus(); } });
+$("a").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } });
+$("bx").onclick = () => { $("b").value = ""; renderChips(); $("b").focus(); };
+$("chips").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; $("b").value = c.dataset.v; renderChips(); };
+$("seg").onclick = e => { const b = e.target.closest("button"); if (!b) return; radius = +b.dataset.r; renderSeg(); };
+$("go").onclick = doSearch;
+$("edit").onclick = () => { render.editing = true; render(); $("b").focus(); };
+$("filters").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; filter = c.dataset.f; render(); };
+$("list").onclick = e => {
+  const b = e.target.closest(".act"); if (!b) return;
+  const id = b.closest(".card").dataset.id, x = S.items.find(i => i.id === id);
+  if (x) action(x, b.dataset.a);
+};
+$("crawl").onclick = doCrawl;
+$("share").onclick = shareList;
+$("gear").onclick = openSheet;
+$("bd").onclick = closeSheet;
+$("tSave").onclick = () => { tpl = {name: $("tName").value.trim(), subj: $("tSubj").value, body: $("tBody").value}; store.set("jr_tpl", tpl); closeSheet(); toast("Gespeichert"); };
+$("upBtn").onclick = () => pendingUpdate ? installUpdate() : checkUpdate(true);
+$("bannerB").onclick = installUpdate;
+$("upReset").onclick = () => { stashStorage(); Native.resetWeb(); Native.reload(); };
+$("tReset").onclick = () => { $("tSubj").value = DEFAULT_TPL.subj; $("tBody").value = DEFAULT_TPL.body; };
+
+/* ---------- Start */
+S.items.forEach(x => delete x.state);
+$("a").value = store.get("jr_addr", "");
+if (S.q) $("b").value = S.q.term;
+renderChips(); renderSeg(); render(); statusSummary();
+
+if (hasNative) { Native.ready(); renderUpdate(""); setTimeout(() => checkUpdate(false), 1500); }
+
+window.JR = {filtersFor, buildQuery, parseElements, extract, crawl, cleanMail};
+</script>
+</body>
+</html>
