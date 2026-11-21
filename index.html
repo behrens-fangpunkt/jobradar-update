@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="3">
+<meta name="jr-version" content="4">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -69,6 +69,34 @@ svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:
 .filters .chip i{font-style:normal;opacity:.6;margin-left:4px}
 .status{color:var(--mute);font-size:13px;margin:10px 2px 10px;min-height:1px}
 .status.err{color:var(--warn)}
+.status{white-space:pre-line}
+.addr{position:relative}
+.aok{color:var(--ok)!important;display:none}
+.aok.on{display:block}
+.sugg{position:absolute;left:0;right:0;top:calc(100% + 6px);background:var(--card);border-radius:14px;box-shadow:0 10px 30px rgba(23,22,43,.16);z-index:5;overflow:hidden}
+.sugg button{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:12px 14px;border-top:1px solid var(--line)}
+.sugg button:first-child{border-top:0}
+.sugg button:active{background:var(--bg)}
+.sugg svg{color:var(--acc);width:18px;height:18px}
+.sugg b{display:block;font-weight:600;font-size:15px}
+.sugg span{display:block;color:var(--mute);font-size:13px}
+.sugg .s-hint{padding:12px 14px;color:var(--mute);font-size:13.5px}
+.loading{display:flex;flex-direction:column;align-items:center;text-align:center;padding:34px 20px 20px;color:var(--mute)}
+.loading b{color:var(--ink);font-size:16px;margin:18px 0 4px}
+.loading span{font-size:13.5px;min-height:20px}
+.radar{position:relative;width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,var(--acc-soft) 0%,rgba(238,237,253,.35) 70%,transparent 71%)}
+.radar i{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(79,70,229,.18)}
+.radar i:nth-child(2){inset:25px}.radar i:nth-child(3){inset:50px}
+.radar .sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(79,70,229,0) 0deg,rgba(79,70,229,0) 270deg,rgba(79,70,229,.45) 360deg);animation:spin 1.6s linear infinite}
+.radar .core{position:absolute;left:50%;top:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 6px rgba(79,70,229,.15)}
+.radar .blip{position:absolute;width:9px;height:9px;border-radius:50%;background:#FFB020;opacity:0;animation:blip 1.6s ease-out infinite}
+.radar .blip:nth-of-type(1){left:30%;top:26%;animation-delay:.2s}
+.radar .blip:nth-of-type(2){left:70%;top:40%;animation-delay:.7s}
+.radar .blip:nth-of-type(3){left:40%;top:72%;animation-delay:1.15s}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes blip{0%{opacity:0;transform:scale(.4)}15%{opacity:1;transform:scale(1.2)}100%{opacity:0;transform:scale(1)}}
+.dots::after{content:"";animation:dots 1.2s steps(4) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 
 /* Karten */
 .card{background:var(--card);border-radius:var(--r);padding:15px 15px 12px;margin-bottom:10px;box-shadow:var(--shadow);animation:in .25s ease both}
@@ -173,8 +201,12 @@ svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:
   <div class="chips" id="chips"></div>
 
   <label class="lbl" for="a">Von wo aus?</label>
-  <div class="field"><svg><use href="#i-pin"/></svg>
-    <input id="a" placeholder="Straße Nr, Stadt" autocomplete="street-address" enterkeyhint="search"></div>
+  <div class="addr">
+    <div class="field"><svg><use href="#i-pin"/></svg>
+      <input id="a" placeholder="Straße und Hausnummer, Stadt" autocomplete="off" enterkeyhint="search">
+      <svg class="aok" id="aok"><use href="#i-check"/></svg></div>
+    <div class="sugg hidden" id="sugg"></div>
+  </div>
 
   <label class="lbl">Umkreis</label>
   <div class="seg" id="seg"></div>
@@ -190,6 +222,10 @@ svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:
 
 <div class="filters hidden" id="filters"></div>
 <div class="status" id="status"></div>
+<div class="loading hidden" id="loading">
+  <div class="radar"><i></i><i></i><i></i><div class="sweep"></div><span class="blip"></span><span class="blip"></span><span class="blip"></span><div class="core"></div></div>
+  <b id="ldT">Adresse wird gesucht</b><span id="ldS"></span>
+</div>
 <div id="list"></div>
 
 <div class="empty" id="empty">
@@ -233,6 +269,7 @@ const UA = "JobRadar/1.0 (Android; private Nebenjobsuche)";
 const BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36";
 const OVERPASS = ["https://overpass-api.de/api/interpreter","https://overpass.kumi.systems/api/interpreter","https://maps.mail.ru/osm/tools/overpass/api/interpreter","https://overpass.private.coffee/api/interpreter"];
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const PHOTON = "https://photon.komoot.io/api/";
 const BUSINESS_KEYS = "amenity|shop|leisure|tourism|office|craft";
 const RADII = [2,5,10,15,25];
 const POPULAR = ["Kino","Café","Restaurant","Bar","Supermarkt","Drogerie","Apotheke","Bäckerei","Buchhandlung","Kleidung","Fitnessstudio","Hotel","Museum","Theater","Eisdiele","Kaufhaus"];
@@ -337,6 +374,12 @@ function request(url, {method = "GET", body = "", ua = UA, timeout = 15000, max 
     .catch(e => ({ok:false, status:0, error: String(e && e.name || e)}))
     .finally(() => clearTimeout(t));
 }
+async function fetchRetry(url, opts, retries = 2){
+  let r = await request(url, opts);
+  for (let i = 0; i < retries && !r.ok && r.status === 0; i++) { await sleep(1500 * (i + 1)); r = await request(url, opts); }
+  return r;
+}
+const netErr = r => r.status === 0 && /UnknownHost|Socket|ConnectException|Timeout|SSL|IOException/i.test(r.error || "");
 function openUrl(u){ if (window.Native && Native.open) Native.open(u); else window.open(u, "_blank"); }
 
 /* ============================================================ Suche */
@@ -388,36 +431,107 @@ function parseElements(data, lat, lon){
   }
   return out.sort((x, y) => x.km - y.km);
 }
-async function geocode(address){
-  const q = new URLSearchParams({format:"json", limit:"1", q:address, countrycodes:"de,at,ch"});
-  const r = await request(NOMINATIM + "?" + q, {timeout: 15000});
-  if (!r.ok) throw new Error(r.status === 0 ? "Keine Internetverbindung?" : "Adresssuche fehlgeschlagen (" + r.status + ")");
-  const res = JSON.parse(r.text);
-  if (!res.length) throw new Error("Adresse nicht gefunden. Mit Stadt probieren, z. B. „Kantstraße 45, Leipzig“.");
-  return {lat: +res[0].lat, lon: +res[0].lon, label: res[0].display_name};
+/* ---------- Adresse: Vorschlaege (Photon) + Fallback (Nominatim) */
+function fmtPhoton(f){
+  const p = f.properties || {}, c = (f.geometry || {}).coordinates;
+  if (!c) return null;
+  const city = p.city || p.town || p.village || p.locality || p.county || "";
+  let l1;
+  if (p.housenumber && p.street) l1 = p.street + " " + p.housenumber;
+  else if (p.street && p.name && p.name !== p.street) l1 = p.name + ", " + p.street;
+  else l1 = p.street || p.name || city;
+  let l2 = [p.postcode, city !== l1 ? city : ""].filter(Boolean).join(" ");
+  if (p.district && p.district !== city && p.district !== l1) l2 += (l2 ? " · " : "") + p.district;
+  if (!l2) l2 = p.state || p.country || "";
+  if (!l1) return null;
+  return {l1, l2, label: l2 ? l1 + ", " + l2.split(" · ")[0] : l1, lat: c[1], lon: c[0]};
 }
-async function search(term, address, km){
-  const g = await geocode(address);
-  const data = encodeURIComponent(buildQuery(term, g.lat, g.lon, km * 1000));
-  const errs = [];
-  // Jeder Server: erst GET, dann POST. Zweite Runde mit Pause, falls alle kurz ueberlastet sind.
-  for (let round = 0; round < 2; round++) {
-    for (const ep of OVERPASS) {
-      for (const method of ["GET", "POST"]) {
-        const r = method === "GET"
-          ? await request(ep + "?data=" + data, {timeout: 60000, max: 20000000})
-          : await request(ep, {method: "POST", body: "data=" + data, timeout: 60000, max: 20000000});
-        if (r.ok) {
-          try { return {...g, known: filtersFor(term).length > 0, results: parseElements(JSON.parse(r.text), g.lat, g.lon)}; }
-          catch(e){ errs.push(new URL(ep).hostname + ": Antwort unlesbar"); continue; }
-        }
-        errs.push(new URL(ep).hostname.replace(/^overpass[.-]/, "") + " " + method + ": " + (r.status || r.error || "keine Verbindung"));
-        if (r.status === 0 && /UnknownHost/.test(r.error || "")) break; // Server nicht auffindbar → POST sparen
-      }
+async function photon(q, limit){
+  const p = new URLSearchParams({q, limit: String(limit), lang: "de", bbox: "5.8,45.8,17.2,55.1"});
+  if (chosenLoc) { p.set("lat", chosenLoc.lat.toFixed(4)); p.set("lon", chosenLoc.lon.toFixed(4)); }
+  const r = await request(PHOTON + "?" + p, {timeout: 8000});
+  if (!r.ok) return null;
+  try { return uniq(JSON.parse(r.text).features.map(fmtPhoton).filter(Boolean), x => x.label); } catch(e){ return null; }
+}
+async function nominatimGeocode(address){
+  const q = new URLSearchParams({format: "jsonv2", limit: "1", q: address, countrycodes: "de,at,ch", addressdetails: "1", "accept-language": "de"});
+  const r = await fetchRetry(NOMINATIM + "?" + q, {timeout: 15000});
+  if (!r.ok) return {err: r};
+  try {
+    const x = JSON.parse(r.text)[0]; if (!x) return null;
+    const a = x.address || {};
+    const city = a.city || a.town || a.village || a.municipality || "";
+    const l1 = [a.road || x.name, a.house_number].filter(Boolean).join(" ");
+    const l2 = [a.postcode, city].filter(Boolean).join(" ");
+    return {l1, l2, label: [l1, l2].filter(Boolean).join(", ") || x.display_name, lat: +x.lat, lon: +x.lon};
+  } catch(e){ return null; }
+}
+async function resolveAddress(text){
+  if (chosenLoc && text === chosenLoc.label) return chosenLoc;
+  const ph = await photon(text, 1);
+  if (ph && ph.length) return ph[0];
+  const nm = await nominatimGeocode(text);
+  if (nm && !nm.err) return nm;
+  if (nm && nm.err && netErr(nm.err)) throw new Error("Keine stabile Internetverbindung. WLAN oder mobile Daten prüfen und nochmal versuchen.");
+  throw new Error("Adresse nicht gefunden. Tippe die Straße und wähle sie aus der Vorschlagsliste.");
+}
+
+/* ---------- Firmensuche: Overpass, Fallback Nominatim */
+async function overpassSearch(term, loc, km, errs, step){
+  const data = encodeURIComponent(buildQuery(term, loc.lat, loc.lon, km * 1000));
+  let netFails = 0;
+  for (const ep of OVERPASS) {
+    const host = new URL(ep).hostname.replace(/^overpass[.-]/, "");
+    step("Firmen im Umkreis werden gesucht …", "Kartenserver: " + host);
+    const r = await fetchRetry(ep + "?data=" + data, {timeout: 15000, max: 20000000}, 1);
+    if (r.ok) {
+      try { return parseElements(JSON.parse(r.text), loc.lat, loc.lon); }
+      catch(e){ errs.push(host + ": Antwort unlesbar"); continue; }
     }
-    if (round === 0) await sleep(3000);
+    errs.push(host + ": " + (r.status || r.error || "keine Verbindung"));
+    if (netErr(r) && ++netFails >= 2) break;   // Netz wackelt -> nicht alle Server abklappern
   }
-  throw new Error("Kartenserver nicht erreichbar. Details: " + uniq(errs).join(" · "));
+  return null;
+}
+async function nominatimSearch(term, loc, km, errs){
+  const dLat = km / 111, dLon = km / (111 * Math.cos(loc.lat * Math.PI / 180));
+  const tiles = [];
+  for (const [a, b] of [[0,0],[0,1],[1,0],[1,1]])
+    tiles.push([loc.lon - dLon + b * dLon, loc.lat + dLat - a * dLat, loc.lon + b * dLon, loc.lat - a * dLat]);
+  const raw = []; let ok = false;
+  for (const vb of tiles) {
+    const q = new URLSearchParams({q: term, format: "jsonv2", limit: "40", bounded: "1", viewbox: vb.map(v => v.toFixed(5)).join(","),
+                                   extratags: "1", addressdetails: "1", "accept-language": "de"});
+    const r = await fetchRetry(NOMINATIM + "?" + q, {timeout: 15000});
+    if (r.ok) { ok = true; try { raw.push(...JSON.parse(r.text)); } catch(e){} }
+    else errs.push("nominatim: " + (r.status || r.error));
+    await sleep(1100);  // Nutzungsregel: max. 1 Anfrage pro Sekunde
+  }
+  if (!ok) return null;
+  const elements = raw.filter(x => x.name).map(x => {
+    const a = x.address || {}, et = x.extratags || {};
+    const tags = {name: x.name, website: et.website || et["contact:website"] || et.url || "", phone: et.phone || et["contact:phone"] || "",
+      email: et.email || et["contact:email"] || "", "addr:street": a.road || "", "addr:housenumber": a.house_number || "",
+      "addr:postcode": a.postcode || "", "addr:city": a.city || a.town || a.village || ""};
+    tags[x.category] = x.type;
+    return {type: (x.osm_type || "n")[0], id: x.osm_id, lat: +x.lat, lon: +x.lon, tags};
+  });
+  return parseElements({elements}, loc.lat, loc.lon).filter(x => x.km <= km);
+}
+async function search(term, loc, km, step){
+  const errs = [];
+  step("Firmen im Umkreis werden gesucht …", "Kartendaten von OpenStreetMap");
+  let res = await overpassSearch(term, loc, km, errs, step), source = "overpass";
+  if (!res) {
+    step("Ausweichsuche läuft …", "Hauptserver hakt – versuche einen anderen Weg");
+    res = await nominatimSearch(term, loc, km, errs); source = "nominatim";
+  }
+  if (!res) {
+    const allNet = errs.every(e => /Exception|keine Verbindung/i.test(e));
+    throw new Error((allNet ? "Keine stabile Internetverbindung. WLAN oder mobile Daten prüfen und nochmal versuchen."
+                            : "Kartenserver gerade nicht erreichbar. In einer Minute nochmal versuchen.") + "\n\nDetails: " + uniq(errs).join(" · "));
+  }
+  return {known: filtersFor(term).length > 0 || source === "nominatim", source, results: res};
 }
 
 /* ============================================================ Crawler */
@@ -550,6 +664,7 @@ let filter = "all", running = false;
 let applied = store.get("jr_applied", {});
 let tpl = Object.assign({}, DEFAULT_TPL, store.get("jr_tpl", {}));
 let radius = store.get("jr_rad", 10);
+let chosenLoc = store.get("jr_loc", null);
 const save = () => store.set("jr_last", S);
 
 const emailsOf = x => uniq([x.email, ...(x.c ? x.c.emails : [])].filter(Boolean).flatMap(e => e.split(/[;,]\s*/)));
@@ -646,25 +761,62 @@ function statusSummary(){
   let t = `${it.length} Treffer · ${w} mit Webseite`;
   if (c) t += ` · ${it.filter(x => x.c && x.c.jobs).length} mit Jobseite`;
   if (!S.q.known) t += " · Branche unbekannt, Suche nach Namen";
+  if (S.q.source === "nominatim") t += " · über Ausweichserver (evtl. nicht vollständig)";
   setStatus(t);
 }
 
 /* ---------- Aktionen */
+function setLoading(on, title, sub){
+  $("loading").classList.toggle("hidden", !on);
+  if (on) {
+    $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden");
+    $("ldT").innerHTML = esc((title || "").replace(/\s*…$/, "")) + '<span class="dots"></span>';
+    $("ldS").textContent = sub || "";
+  }
+}
 async function doSearch(){
   const term = $("b").value.trim(), addr = $("a").value.trim();
   if (!term) { $("b").focus(); return toast("Welche Branche?"); }
   if (!addr) { $("a").focus(); return toast("Von welcher Adresse aus?"); }
   document.activeElement && document.activeElement.blur();
-  store.set("jr_addr", addr); store.set("jr_rad", radius);
+  hideSugg();
+  store.set("jr_rad", radius);
   const go = $("go"); go.disabled = true; go.lastChild.textContent = "Suche läuft …";
   setStatus("");
+  setLoading(true, "Adresse wird gesucht …", addr);
   try {
-    const r = await search(term, addr, radius);
-    S = {q: {term, addr, km: radius, origin: r.label.split(",").slice(0, 3).join(","), known: r.known}, items: r.results};
-    filter = "all"; render.editing = false; save(); render(); statusSummary();
+    const loc = await resolveAddress(addr);
+    setChosen(loc);
+    const r = await search(term, loc, radius, (t, sub) => setLoading(true, t, sub));
+    S = {q: {term, addr: loc.label, km: radius, origin: loc.label, known: r.known, source: r.source}, items: r.results};
+    filter = "all"; render.editing = false; save();
+    setLoading(false); render(); statusSummary();
     window.scrollTo({top: 0});
-  } catch(e) { setStatus(e.message || String(e), true); }
+  } catch(e) {
+    setLoading(false); render();
+    setStatus(e.message || String(e), true);
+  }
   go.disabled = false; go.lastChild.textContent = "Firmen finden";
+}
+/* ---------- Adress-Vorschlaege */
+let suggSeq = 0, suggTimer = 0, suggItems = [];
+function setChosen(loc){
+  chosenLoc = loc; store.set("jr_loc", loc); store.set("jr_addr", loc.label);
+  $("a").value = loc.label; updateAok();
+}
+function updateAok(){ $("aok").classList.toggle("on", !!chosenLoc && $("a").value.trim() === chosenLoc.label); }
+function hideSugg(){ $("sugg").classList.add("hidden"); }
+function showSugg(html){ $("sugg").innerHTML = html; $("sugg").classList.remove("hidden"); }
+async function suggest(){
+  const q = $("a").value.trim(), my = ++suggSeq;
+  if (q.length < 3 || (chosenLoc && q === chosenLoc.label)) return hideSugg();
+  showSugg(`<div class="s-hint">Suche Adressen<span class="dots"></span></div>`);
+  const res = await photon(q, 5);
+  if (my !== suggSeq) return;
+  if (!res) return showSugg(`<div class="s-hint">Vorschläge gerade nicht verfügbar – einfach weiter tippen und suchen.</div>`);
+  if (!res.length) return showSugg(`<div class="s-hint">Nichts gefunden. Stadt mit eintippen, z. B. „Kantstraße 45 Leipzig“.</div>`);
+  suggItems = res;
+  showSugg(res.map((x, i) => `<button data-i="${i}">${icon("pin")}<div><b>${esc(x.l1)}</b><span>${esc(x.l2)}</span></div></button>`).join(""));
 }
 async function doCrawl(){
   if (running) return;
@@ -739,7 +891,11 @@ window.handleBack = function(){
 /* ---------- Events */
 $("b").addEventListener("input", renderChips);
 $("b").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("a").value ? doSearch() : $("a").focus(); } });
-$("a").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doSearch(); } });
+$("a").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); if (!$("sugg").classList.contains("hidden") && suggItems.length && !(chosenLoc && $("a").value.trim() === chosenLoc.label)) setChosen(suggItems[0]); hideSugg(); doSearch(); } });
+$("a").addEventListener("input", () => { updateAok(); clearTimeout(suggTimer); suggTimer = setTimeout(suggest, 350); });
+$("a").addEventListener("focus", () => { if ($("a").value.trim().length >= 3 && !(chosenLoc && $("a").value.trim() === chosenLoc.label)) suggest(); });
+$("a").addEventListener("blur", () => setTimeout(hideSugg, 200));
+$("sugg").addEventListener("pointerdown", e => { const b = e.target.closest("button"); if (!b) return; e.preventDefault(); setChosen(suggItems[+b.dataset.i]); suggItems = []; hideSugg(); $("a").blur(); });
 $("bx").onclick = () => { $("b").value = ""; renderChips(); $("b").focus(); };
 $("chips").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; $("b").value = c.dataset.v; renderChips(); };
 $("seg").onclick = e => { const b = e.target.closest("button"); if (!b) return; radius = +b.dataset.r; renderSeg(); };
@@ -763,9 +919,9 @@ $("tReset").onclick = () => { $("tSubj").value = DEFAULT_TPL.subj; $("tBody").va
 
 /* ---------- Start */
 S.items.forEach(x => delete x.state);
-$("a").value = store.get("jr_addr", "");
+$("a").value = chosenLoc ? chosenLoc.label : store.get("jr_addr", "");
 if (S.q) $("b").value = S.q.term;
-renderChips(); renderSeg(); render(); statusSummary();
+renderChips(); renderSeg(); render(); statusSummary(); updateAok();
 
 if (hasNative) { Native.ready(); renderUpdate(""); setTimeout(() => checkUpdate(false), 1500); }
 
