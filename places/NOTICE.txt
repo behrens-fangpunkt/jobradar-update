@@ -1,10 +1,10 @@
-Leipzig creative-business index
+Regional creative-business indexes
 
 Source: Overture Maps Foundation, Overture Places release 2026-11-18.0.
 https://docs.overturemaps.org/guides/places/
 https://docs.overturemaps.org/attribution/#places
 
-This extract was geographically filtered to the Leipzig area and limited
+This extract was geographically filtered to the Leipzig and Bielefeld areas and limited
 to creative, design, and architecture businesses with websites. Fields
 were selected and coordinates rounded for JobRadar's local search.
 
