@@ -43,6 +43,12 @@ async function validAccessCode(provided, expected) {
   return difference === 0;
 }
 
+async function phoneFingerprint(device) {
+  if (!device || !/^[a-f0-9]{64}$/.test(device)) return "";
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(device));
+  return Array.from(new Uint8Array(digest).slice(0,16), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function parseApplication(form) {
   const company = form.get("company")?.trim();
   const industry = form.get("industry")?.trim() || "";
@@ -81,7 +87,8 @@ async function createDraft(facts, apiKey) {
 
 export default {
   async fetch(request, env) {
-    if (new URL(request.url).pathname !== "/draft") return reply(404, {error:"not_found"});
+    const path = new URL(request.url).pathname;
+    if (path !== "/draft" && path !== "/access") return reply(404, {error:"not_found"});
     if (request.method !== "POST") return reply(405, {error:"method_not_allowed"});
     if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") {
       return reply(415, {error:"content_type"});
@@ -89,7 +96,14 @@ export default {
     try {
       const form = await readForm(request);
       if (!form) return reply(413, {error:"request_too_large"});
-      if (!await validAccessCode(form.get("code"), env.ASSISTANT_CODE)) return reply(401, {error:"access_denied"});
+      const fingerprint = await phoneFingerprint(form.get("device"));
+      const approved = env.APPROVED_DEVICE_CODES?.toLowerCase().replace(/-/g, "").split(/[\s,]+/) || [];
+      const authorized = (fingerprint && approved.includes(fingerprint)) || await validAccessCode(form.get("code"), env.ASSISTANT_CODE);
+      if (!authorized) {
+        const activation = path === "/access" && fingerprint ? fingerprint.match(/.{8}/g).join("-").toUpperCase() : undefined;
+        return reply(401, {error:"access_denied", activation});
+      }
+      if (path === "/access") return env.OPENAI_API_KEY ? reply(200, {ready:true}) : reply(503, {error:"service_unavailable"});
       const facts = parseApplication(form);
       if (!facts) return reply(400, {error:"invalid_answers"});
       if (!env.OPENAI_API_KEY) return reply(503, {error:"service_unavailable"});

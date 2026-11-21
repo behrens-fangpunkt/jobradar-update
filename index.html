@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="13">
+<meta name="jr-version" content="14">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -836,9 +836,8 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .assistant-choices .ghost{min-height:44px;padding:10px 6px}
 .assistant-choices .ghost[aria-pressed="true"]{background:var(--acc-soft);color:var(--acc)}
 .assistant-nav{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:12px}
-#assistantSetup summary{color:var(--acc);cursor:pointer;font-weight:600}
-#assistantSetup p{margin:10px 0 4px}
 #assistantContent .primary{margin-top:10px}
+.assistant-code{display:block;margin:8px 0;color:var(--ink);overflow-wrap:anywhere;user-select:all}
 
 .banner{display:flex;align-items:center;gap:10px;background:var(--acc-soft);color:var(--acc);border-radius:14px;padding:10px 10px 10px 14px;margin-bottom:12px;font-weight:600;font-size:14px}
 .banner span{flex:1}
@@ -975,17 +974,6 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <p class="hint" id="upMsg" style="text-align:center;margin-top:8px"></p>
     <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
   </div>
-  <details class="upd" id="assistantSetup">
-    <summary>KI-Assistent verbinden</summary>
-    <form id="assistantConfig">
-      <p class="hint">Für einen KI-Entwurf werden deine Antworten, Firmenname und Branche an den verbundenen Dienst gesendet.</p>
-      <label class="lbl" for="assistantUrl">Serveradresse</label>
-      <input id="assistantUrl" type="url" placeholder="https://…/draft" autocapitalize="none">
-      <label class="lbl" for="assistantCode">Zugangscode</label>
-      <input id="assistantCode" type="password" autocomplete="off" maxlength="128">
-      <button type="submit" class="ghost">Verbindung speichern</button>
-    </form>
-  </details>
 </div>
 <div class="backdrop" id="assistantBackdrop"></div>
 <section class="sheet" id="assistantSheet" role="dialog" aria-modal="true" aria-labelledby="assistantTitle">
@@ -2486,15 +2474,56 @@ const APPLICATION_QUESTIONS = [
   {key:"time", label:"Wann kannst du arbeiten?", options:{flexibel:"Flexibel", morgens:"Vormittags", abends:"Abends", wochenende:"Wochenende", skip:"Überspringen"}},
   {key:"strength", label:"Was ist deine Stärke?", options:{zuverlaessig:"Zuverlässig", organisiert:"Organisiert", lernbereit:"Lernbereit", kommunikativ:"Kommunikativ", skip:"Überspringen"}}
 ];
+const ASSISTANT_SERVER = "https://jobradar-assistant.billowing-shape-d74b.workers.dev";
+const legacyAssistant = store.get("jr_assistant", null);
 let assistant = null;
-let assistantConfig = store.get("jr_assistant", null);
+
+async function assistantPhone() {
+  let device = store.get("jr_assistant_device", "");
+  const hex = bytes => Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  if (!/^[a-f0-9]{64}$/.test(device)) {
+    device = hex(crypto.getRandomValues(new Uint8Array(32)));
+    store.set("jr_assistant_device", device);
+  }
+  let activation;
+  if (crypto.subtle) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(device)).catch(() => null);
+    if (digest) activation = hex(new Uint8Array(digest).slice(0,16)).match(/.{8}/g).join("-").toUpperCase();
+  }
+  return {url:ASSISTANT_SERVER + "/draft", credentials:{device}, activation};
+}
+
+async function checkAssistantAccess(state) {
+  if (!state || state.busy || state.draft || state.access === "checking") return;
+  state.access = "checking";
+  if (state.step === APPLICATION_QUESTIONS.length) renderAssistant();
+  try {
+    state.config ||= await assistantPhone();
+    const options = {method:"POST", body:new URLSearchParams(state.config.credentials).toString(), timeout:5500, max:4096};
+    const reply = await request(ASSISTANT_SERVER + "/access", options);
+    state.access = reply.status === 200 ? "ready" : "unavailable";
+    if (reply.status === 401) {
+      const activation = JSON.parse(reply.text).activation;
+      if (typeof activation === "string" && /^[0-9A-F]{8}(?:-[0-9A-F]{8}){3}$/.test(activation)) {
+        state.config.activation = activation;
+        state.access = "approval";
+      }
+    } else if (reply.status === 404 && state.config.activation) {
+      state.access = "approval";
+    }
+  } catch (_) { state.access = "unavailable"; }
+  if (assistant === state && state.step === APPLICATION_QUESTIONS.length && !state.busy && !state.draft) renderAssistant();
+}
 
 function openAssistant(x, trigger) {
-  assistant = {x, trigger, answers:{}, step:0, busy:false, draft:null};
+  const config = legacyAssistant?.url && legacyAssistant?.code
+    ? {url:legacyAssistant.url, credentials:{code:legacyAssistant.code}} : null;
+  assistant = {x, trigger, answers:{}, step:0, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
   $("assistantCompany").textContent = x.name;
   $("assistantBackdrop").classList.add("open");
   $("assistantSheet").classList.add("open");
   renderAssistant();
+  if (!config) checkAssistantAccess(assistant);
 }
 function closeAssistant() {
   const trigger = assistant?.trigger;
@@ -2517,7 +2546,7 @@ function templateDraft(x, answers) {
   return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
 }
 async function aiDraft(config, x, answers) {
-  const input = new URLSearchParams({code:config.code, company:x.name.slice(0,140), industry:(x.kind || "").slice(0,80), ...answers});
+  const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:(x.kind || "").slice(0,80), ...answers});
   const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
   if (!reply.ok) return null;
   const parsed = JSON.parse(reply.text);
@@ -2528,7 +2557,7 @@ async function aiDraft(config, x, answers) {
 async function generateAssistantDraft(useAI) {
   const state = assistant;
   if (!state || state.busy) return;
-  const config = useAI ? assistantConfig : null;
+  const config = useAI && state.access === "ready" ? state.config : null;
   const {x, answers} = state;
   state.busy = true;
   renderAssistant();
@@ -2543,7 +2572,7 @@ async function generateAssistantDraft(useAI) {
   renderAssistant();
 }
 function renderAssistant() {
-  const {x, step, answers, busy, draft} = assistant;
+  const {x, step, answers, busy, draft, access, config} = assistant;
   const box = $("assistantContent");
   if (busy) {
     box.innerHTML = '<p class="assistant-step" role="status">Entwurf wird vorbereitet<span class="dots"></span></p>';
@@ -2559,8 +2588,12 @@ function renderAssistant() {
     $("draftBody").value = draft.body;
   } else if (step === APPLICATION_QUESTIONS.length) {
     box.innerHTML = `<p class="assistant-step">Dein Entwurf</p>
-      ${assistantConfig ? '<p class="hint">Für den KI-Entwurf werden Firma, Branche und deine Antworten an den verbundenen Dienst gesendet.</p><button class="primary" type="button" data-ass="ai">KI-Entwurf erstellen</button>' : ""}
-      <button class="${assistantConfig ? "ghost" : "primary"}" type="button" data-ass="template">Entwurf aus Vorlage erstellen</button>
+      ${access === "ready" ? '<p class="hint">Für den KI-Entwurf werden Firma, Branche und deine Antworten übermittelt.</p><button class="primary" type="button" data-ass="ai">KI-Entwurf erstellen</button>' : ""}
+      ${access === "checking" ? '<p class="hint" role="status">KI-Zugang wird geprüft …</p>' : ""}
+      ${access === "unavailable" ? '<p class="hint">KI ist gerade nicht erreichbar.</p><button class="link" type="button" data-ass="recheck">Erneut prüfen</button>' : ""}
+      ${access === "approval" ? `<p class="hint">Dieses Handy braucht eine einmalige KI-Freigabe.</p><code class="assistant-code">${esc(config.activation)}</code>
+        <div class="assistant-nav"><button class="link" type="button" data-ass="share-code">Freischaltcode teilen</button><button class="link" type="button" data-ass="recheck">Freigabe prüfen</button></div>` : ""}
+      <button class="${access === "ready" ? "ghost" : "primary"}" type="button" data-ass="template">Entwurf aus Vorlage erstellen</button>
       <div class="assistant-nav"><button class="link" type="button" data-ass="back">Zurück</button></div>`;
   } else {
     const question = APPLICATION_QUESTIONS[step];
@@ -2646,9 +2679,6 @@ async function addWebsite(event) {
 /* ---------- Einstellungen */
 function openSheet(){
   $("tName").value = tpl.name; $("tSubj").value = tpl.subj; $("tBody").value = tpl.body;
-  $("assistantUrl").value = assistantConfig?.url || "";
-  $("assistantCode").value = assistantConfig?.code || "";
-  $("assistantSetup").open = false;
   $("sheet").scrollTop = 0;
   $("bd").classList.add("open"); $("sheet").classList.add("open");
 }
@@ -2726,6 +2756,9 @@ $("assistantClose").onclick = closeAssistant;
 $("assistantSheet").addEventListener("keydown", event => {
   if (event.key === "Escape") { event.preventDefault(); closeAssistant(); }
 });
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && assistant?.access === "approval") checkAssistantAccess(assistant);
+});
 $("assistantContent").onclick = async e => {
   const button = e.target.closest("button");
   if (!button || !assistant || assistant.busy) return;
@@ -2744,6 +2777,16 @@ $("assistantContent").onclick = async e => {
     renderAssistant();
   } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
     await generateAssistantDraft(button.dataset.ass === "ai");
+  } else if (button.dataset.ass === "recheck") {
+    await checkAssistantAccess(assistant);
+  } else if (button.dataset.ass === "share-code") {
+    const code = assistant.config?.activation;
+    if (!code) return;
+    if (window.Native && Native.share) Native.share(code);
+    else {
+      try { await navigator.clipboard.writeText(code); toast("Freischaltcode kopiert"); }
+      catch (_) { toast("Halte den Freischaltcode zum Kopieren gedrückt."); }
+    }
   } else if (button.dataset.ass === "mail") {
     const mail = emailsOf(assistant.x)[0];
     if (mail) openApplicationMail(mail, $("draftSubject").value, $("draftBody").value);
@@ -2759,25 +2802,6 @@ $("assistantContent").onclick = async e => {
       else toast("Text markiert. Halte ihn zum Kopieren gedrückt.");
     }
   }
-};
-$("assistantConfig").onsubmit = event => {
-  event.preventDefault();
-  const address = $("assistantUrl").value.trim();
-  const code = $("assistantCode").value.trim();
-  if (!address && !code) {
-    assistantConfig = null;
-  } else {
-    let url;
-    try { url = new URL(address); } catch (_) {}
-    if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash || code.length < 24) {
-      toast("Bitte HTTPS-Serveradresse und gültigen Zugangscode eingeben");
-      return;
-    }
-    assistantConfig = {url:url.href, code};
-  }
-  store.set("jr_assistant", assistantConfig);
-  $("assistantSetup").open = false;
-  toast(assistantConfig ? "Verbindung gespeichert" : "Verbindung entfernt");
 };
 $("tSave").onclick = () => { tpl = {name: $("tName").value.trim(), subj: $("tSubj").value, body: $("tBody").value}; store.set("jr_tpl", tpl); closeSheet(); toast("Gespeichert"); };
 $("upBtn").onclick = () => pendingUpdate ? installUpdate() : checkUpdate(true);

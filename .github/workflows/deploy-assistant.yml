@@ -2,6 +2,11 @@ name: Deploy JobRadar assistant
 
 on:
   workflow_dispatch:
+    inputs:
+      approved_phones:
+        description: Phone activation codes, comma-separated. Leave empty to keep current approvals.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -25,6 +30,7 @@ jobs:
           ASSISTANT_CODE: ${{ secrets.ASSISTANT_CODE }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          APPROVED_DEVICE_CODES: ${{ inputs.approved_phones }}
         run: |
           for name in OPENAI_API_KEY ASSISTANT_CODE CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
             if [[ -z "${!name}" ]]; then
@@ -37,7 +43,9 @@ jobs:
             exit 1
           fi
           umask 077
-          jq -n '{OPENAI_API_KEY: env.OPENAI_API_KEY, ASSISTANT_CODE: env.ASSISTANT_CODE}' > "$RUNNER_TEMP/jobradar-worker-secrets.json"
+          jq -n '{OPENAI_API_KEY: env.OPENAI_API_KEY, ASSISTANT_CODE: env.ASSISTANT_CODE}
+                 + (if (env.APPROVED_DEVICE_CODES | length) > 0
+                    then {APPROVED_DEVICE_CODES: env.APPROVED_DEVICE_CODES} else {} end)' > "$RUNNER_TEMP/jobradar-worker-secrets.json"
       - name: Deploy assistant
         id: worker
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
@@ -57,14 +65,35 @@ jobs:
           import json
           import os
           import re
+          import time
           from urllib.parse import urlencode
 
           worker = re.fullmatch(r"https://(jobradar-assistant\.[a-z0-9-]+\.workers\.dev)/?", os.environ["WORKER_URL"])
           if not worker:
               raise SystemExit("No jobradar-assistant workers.dev URL returned by Wrangler.")
           host = worker[1]
+
+          def wait_for_worker():
+              for attempt in range(8):
+                  connection = http.client.HTTPSConnection(host, timeout=5)
+                  try:
+                      connection.request("GET", "/draft")
+                      response = connection.getresponse()
+                      if response.status == 405:
+                          return
+                      if response.status not in (404, 502, 503, 504):
+                          raise SystemExit(f"The Worker readiness check failed with HTTP {response.status}.")
+                  except OSError:
+                      pass
+                  finally:
+                      connection.close()
+                  if attempt < 7:
+                      time.sleep(4)
+              raise SystemExit("The deployed Worker did not become reachable in time for the sample draft.")
+
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write(f"**JobRadar Serveradresse** `https://{host}/draft`\n\n")
+              wait_for_worker()
               data = urlencode({"code": os.environ["ASSISTANT_CODE"], "company": "Beispielbetrieb",
                                "industry": "Einzelhandel", "role": "minijob", "experience": "skip",
                                "time": "abends", "strength": "organisiert"})

@@ -15,8 +15,14 @@ Use the repository’s [Actions secrets settings](https://github.com/behrens-fan
 
 Activate the account’s `workers.dev` subdomain in the Cloudflare Workers dashboard. The [Cloudflare GitHub Actions guide](https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/) explains how to create the deployment token and find the account ID.
 
-Run [Deploy JobRadar assistant](https://github.com/behrens-fangpunkt/jobradar-update/actions/workflows/deploy-assistant.yml) on `main`. The workflow deploys the Worker, makes one OpenAI request with fictional application details, and prints the **Serveradresse** in the run summary. Successful deployment works with JobRadar v13 on iOS and Android.
+Run [Deploy JobRadar assistant](https://github.com/behrens-fangpunkt/jobradar-update/actions/workflows/deploy-assistant.yml) on `main`. The workflow deploys the Worker and makes one OpenAI request with fictional application details. JobRadar v14 has the default service URL built in on iOS and Android.
 
-In JobRadar, open Settings and expand **KI-Assistent verbinden**. Enter the `/draft` URL from the workflow summary and your separate access code. Then open **Assistent** on a business card, answer the four questions, and choose **KI-Entwurf erstellen**. To rotate the OpenAI API key, replace the GitHub secret and run the workflow again.
+## Approve a phone
+
+1. In JobRadar v14, open **Assistent** on a business card and answer the four questions. On a new phone, use **Freischaltcode teilen** to send its activation code to the repository owner.
+2. In GitHub, run **Deploy JobRadar assistant** and paste the activation code into **Phone activation codes**. To approve multiple phones, enter all approved codes separated by commas. To retain current approvals during a redeploy, leave the field empty. To revoke all phone approvals, enter `none`.
+3. Once the run succeeds, reopen the assistant or press **Freigabe prüfen**. **KI-Entwurf erstellen** is available on that phone. Its approval persists across app updates.
+
+The shared `ASSISTANT_CODE` still authorizes the deployment test and existing devices configured in v13. The activation code shown by v14 identifies a phone without exposing the private credential generated on it. To rotate the OpenAI API key, replace the GitHub secret and run the workflow again.
 
 The Worker accepts the company name, industry and four answer codes. JobRadar adds the greeting and the applicant name locally. **In Mail öffnen** opens an editable draft in the phone’s mail app. The Worker limits draft requests and sets `store: false` on OpenAI requests.
