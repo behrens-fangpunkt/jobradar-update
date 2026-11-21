@@ -5,7 +5,6 @@ import argparse
 import base64
 import gzip
 import json
-import math
 import re
 from itertools import groupby
 from pathlib import Path
@@ -102,7 +101,9 @@ def build(release, output, bounds, threads=4):
     data = output / release
     data.mkdir(parents=True, exist_ok=True)
     source = f"s3://overturemaps-us-west-2/release/{release}/theme=places/type=place/*.parquet"
-    with duckdb.connect(config={"threads": threads, "memory_limit": "850MB"}) as conn:
+    print(f"Reading Overture Places {release} for {bounds}", flush=True)
+    config = {"threads": threads, "memory_limit": "850MB", "temp_directory": str(output.parent / "duckdb-spill")}
+    with duckdb.connect(config=config) as conn:
         conn.execute("INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2'; SET http_timeout=30; SET http_retries=2")
         cursor = conn.execute(QUERY, [source, south, north, west, east])
         count, tiles = 0, {}
@@ -121,8 +122,10 @@ def build(release, output, bounds, threads=4):
                 part = write_chunk(rows, data, key, part)
             if part:
                 tiles[key] = part
-    if not count:
-        raise ValueError("Refusing to publish an empty directory")
+                if len(tiles) % 100 == 0:
+                    print(f"Packed {len(tiles)} tiles and {count:,} businesses", flush=True)
+    if not count or (tuple(bounds) == GERMANY and count < 10000):
+        raise ValueError(f"Refusing to publish an unexpectedly small directory ({count:,} businesses)")
     manifest = {"schema": 1, "release": release, "grid": GRID, "bounds": list(bounds), "count": count, "tiles": tiles}
     (output / "manifest.json").write_text(json.dumps(manifest, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"{count:,} businesses in {len(tiles)} tiles ({sum(tiles.values())} files)", flush=True)
