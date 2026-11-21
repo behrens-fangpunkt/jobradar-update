@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="12">
+<meta name="jr-version" content="13">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -828,6 +828,17 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .sheet textarea{min-height:220px;resize:vertical;line-height:1.45}
 .sheet .row2{display:flex;gap:10px;margin-top:16px}
 .ghost{flex:1;padding:14px;border-radius:14px;background:var(--bg);font-weight:600}
+.ghost:disabled{opacity:.55}
+.assistant-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.assistant-head .icon-btn{margin:0;flex-shrink:0;background:var(--bg)}
+.assistant-step{font-size:17px;margin:16px 0 10px}
+.assistant-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.assistant-choices .ghost{min-height:44px;padding:10px 6px}
+.assistant-choices .ghost[aria-pressed="true"]{background:var(--acc-soft);color:var(--acc)}
+.assistant-nav{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:12px}
+#assistantSetup summary{color:var(--acc);cursor:pointer;font-weight:600}
+#assistantSetup p{margin:10px 0 4px}
+#assistantContent .primary{margin-top:10px}
 
 .banner{display:flex;align-items:center;gap:10px;background:var(--acc-soft);color:var(--acc);border-radius:14px;padding:10px 10px 10px 14px;margin-bottom:12px;font-weight:600;font-size:14px}
 .banner span{flex:1}
@@ -964,7 +975,28 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <p class="hint" id="upMsg" style="text-align:center;margin-top:8px"></p>
     <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
   </div>
+  <details class="upd" id="assistantSetup">
+    <summary>KI-Assistent verbinden</summary>
+    <form id="assistantConfig">
+      <p class="hint">Für einen KI-Entwurf werden deine Antworten, Firmenname und Branche an den verbundenen Dienst gesendet.</p>
+      <label class="lbl" for="assistantUrl">Serveradresse</label>
+      <input id="assistantUrl" type="url" placeholder="https://…/draft" autocapitalize="none">
+      <label class="lbl" for="assistantCode">Zugangscode</label>
+      <input id="assistantCode" type="password" autocomplete="off" maxlength="128">
+      <button type="submit" class="ghost">Verbindung speichern</button>
+    </form>
+  </details>
 </div>
+<div class="backdrop" id="assistantBackdrop"></div>
+<section class="sheet" id="assistantSheet" role="dialog" aria-modal="true" aria-labelledby="assistantTitle">
+  <div class="grab"></div>
+  <div class="assistant-head">
+    <h2 id="assistantTitle">Bewerbungsassistent</h2>
+    <button class="icon-btn" type="button" id="assistantClose" aria-label="Assistent schließen"><svg><use href="#i-x"/></svg></button>
+  </div>
+  <p class="hint" id="assistantCompany"></p>
+  <div id="assistantContent"></div>
+</section>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -984,6 +1016,7 @@ const BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, l
 const OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
 const NOMINATIM = "https://nominatim.openstreetmap.org/search";
 const PHOTON = "https://photon.komoot.io/api/";
+const BERLIN_ADDRESSES = "https://gdi.berlin.de/services/wfs/adressen_berlin";
 const BUSINESS_KEYS = "amenity|shop|leisure|tourism|office|craft";
 const RADII = [2,5,10,15,25];
 const POPULAR = ["Kino","Café","Restaurant","Bar","Supermarkt","Drogerie","Apotheke","Bäckerei","Buchhandlung","Kleidung","Fitnessstudio","Hotel","Museum","Theater","Eisdiele","Kaufhaus"];
@@ -1556,6 +1589,68 @@ function rankAddresses(query, candidates) {
   return uniq(matching, item => addressKey(item.label)).slice(0, 5);
 }
 
+function berlinAddressQuery(query) {
+  const berlinPostcode = +query.postcode >= 10115 && +query.postcode <= 14199;
+  const city = query.city.replace(/^Berlin(?:[- ]+|$)/iu, "").trim();
+  const street = query.street.replace(/^Berlin[- ]+/iu, "");
+  if (street && (city !== query.city || street !== query.street || (berlinPostcode && !query.city))) {
+    return {...query, street, city:["Berlin", city].filter(Boolean).join(" ")};
+  }
+  if (query.street) return null;
+  const partial = query.city.match(/^(?:Berlin[ ,]+(.+)|(.+?)[ ,]+Berlin)$/iu);
+  return partial ? {...query, street:partial[1] || partial[2], city:"Berlin"} : null;
+}
+
+async function berlinAddresses(query) {
+  const street = query.street.trim();
+  if (streetKey(street).length < 4 || street.length > 100) return [];
+  const expanded = street.replace(/str(?:a(?:ße|sse)|\.?)$/iu, "straße");
+  const folded = expanded.replace(/ae/gi, "ä").replace(/oe/gi, "ö").replace(/ue/gi, "ü");
+  const variants = uniq([street, expanded, folded, expanded.replace(/\s+straße$/iu, "straße"), folded.replace(/\s+straße$/iu, "straße")]);
+  const patterns = variants.map(value => {
+    const literal = esc(value.replace(/[!*?]/g, char => "!" + char));
+    return `<PropertyIsLike wildCard="*" singleChar="?" escapeChar="!" matchCase="false"><ValueReference>str_name</ValueReference><Literal>${literal}${query.houseNumber || STREET_SUFFIX.test(value) ? "" : "*"}</Literal></PropertyIsLike>`;
+  });
+  const equals = (field, value) => `<PropertyIsEqualTo><ValueReference>${field}</ValueReference><Literal>${esc(value)}</Literal></PropertyIsEqualTo>`;
+  const filters = [patterns.length === 1 ? patterns[0] : `<Or>${patterns.join("")}</Or>`];
+  if (query.postcode) filters.push(equals("plz", query.postcode));
+  if (query.houseNumber) filters.push(equals("hnr", /^\d+/.exec(query.houseNumber)[0]));
+  const filter = filters.length === 1 ? filters[0] : `<And>${filters.join("")}</And>`;
+  const p = new URLSearchParams({service:"WFS", version:"2.0.0", request:"GetFeature",
+    typeNames:"adressen_berlin:adressen_berlin", outputFormat:"application/json", srsName:"EPSG:4326", count:"1000",
+    propertyName:"str_name,hnr,hnr_zusatz,plz,ort_name,geom", filter:`<Filter xmlns="http://www.opengis.net/fes/2.0">${filter}</Filter>`});
+  const r = await request(BERLIN_ADDRESSES + "?" + p, {timeout:4500, max:500000});
+  if (!r.ok) return null;
+  try {
+    const groups = new Map();
+    for (const feature of JSON.parse(r.text).features) {
+      const a = feature.properties;
+      const c = feature.geometry?.coordinates;
+      if (!a?.str_name || !c || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+      const houseNumber = query.houseNumber ? [a.hnr, a.hnr_zusatz?.trim()].filter(Boolean).join("") : "";
+      const place = fmtPhoton({geometry:feature.geometry, properties:{name:a.str_name, street:a.str_name,
+        housenumber:houseNumber, city:"Berlin", postcode:a.plz, district:a.ort_name, type:houseNumber ? "house" : "street"}});
+      if (!place) continue;
+      place.label = [place.label, place.district].filter(Boolean).join(" ");
+      place.berlin = true;
+      if (houseNumber) {
+        groups.set(place.label, {points:[place], lon:place.lon, lat:place.lat});
+        continue;
+      }
+      if (!groups.has(place.label)) groups.set(place.label, {points:[], lon:0, lat:0});
+      const group = groups.get(place.label);
+      group.points.push(place);
+      group.lon += place.lon;
+      group.lat += place.lat;
+    }
+    const candidates = [...groups.values()].map(({points, lon, lat}) => {
+      const distance = p => (p.lon - lon / points.length) ** 2 + (p.lat - lat / points.length) ** 2;
+      return points.reduce((nearest, p) => distance(p) < distance(nearest) ? p : nearest);
+    });
+    return rankAddresses(query, candidates);
+  } catch (_) { return null; }
+}
+
 async function photon(query) {
   for (const text of addressQueries(query)) {
     const p = new URLSearchParams({q:text, limit:"12", lang:"de", bbox:"5.8,45.8,17.2,55.1"});
@@ -1630,7 +1725,11 @@ async function localPlaceMatches(query) {
 async function searchAddresses(query, local) {
   local ||= await localPlaceMatches(query);
   if (local.some(place => place.exact)) return local;
+  const berlin = berlinAddressQuery(query);
+  const official = berlin ? await berlinAddresses(berlin) : [];
+  if (official?.length) return official;
   const online = await photon(query);
+  if (berlin && official === null && !online?.length && !local.length) return null;
   if (!local.length) return online;
   return uniq([...(online || []), ...local], place => addressKey(place.label)).slice(0, 5);
 }
@@ -2065,6 +2164,7 @@ function card(x){
   let a = "";
   if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
   else if (needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
+  a += `<button class="act" data-a="assistant">${icon("spark")}Assistent</button>`;
   if (c && c.jobs) a += `<button class="act${mails.length ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
   if (phones.length) a += `<button class="act" data-a="call">${icon("phone")}Anrufen</button>`;
   if (x.website) a += `<button class="act" data-a="web">${icon("globe")}Webseite</button>`;
@@ -2099,7 +2199,7 @@ function render(){
   $("panel").classList.toggle("hidden", has && !render.editing);
   $("summary").classList.toggle("hidden", !has || render.editing);
   $("filters").classList.toggle("hidden", !S.items.length);
-  $("dock").classList.toggle("hidden", !S.items.length);
+  $("dock").classList.toggle("hidden", !S.items.length || render.editing);
   $("empty").classList.toggle("hidden", has);
   if (has) {
     $("sumT").textContent = `${S.q.term} · ${S.q.km} km`;
@@ -2273,8 +2373,9 @@ function showSugg(html) {
 }
 function showAddressMatches(matches) {
   suggItems = matches;
-  const buttons = matches.map((x, i) => `<button type="button" data-i="${i}">${icon("pin")}<div><b>${esc(x.l1)}</b><span>${esc(x.l2)}${x.local ? " · Ortsmitte / PLZ" : ""}</span></div></button>`).join("");
-  const credit = matches.some(x => x.local) ? '<div class="s-hint">Orte und PLZ: <a href="https://www.geonames.org/">GeoNames</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></div>' : "";
+  const buttons = matches.map((x, i) => `<button type="button" data-i="${i}">${icon("pin")}<div><b>${esc(x.l1)}</b><span>${esc(x.l2)}${x.local ? " · Ortsmitte / PLZ" : x.type === "street" ? " · Straßenabschnitt" : ""}</span></div></button>`).join("");
+  const credit = matches.some(x => x.berlin) ? '<div class="s-hint"><a href="https://daten.berlin.de/datensaetze/adressen-berlin-wfs-634ab8ba">Amtliche Adressen Berlin</a></div>'
+    : matches.some(x => x.local) ? '<div class="s-hint">Orte und PLZ: <a href="https://www.geonames.org/">GeoNames</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a></div>' : "";
   showSugg(buttons + credit);
 }
 function scheduleAddressSuggestions() {
@@ -2296,7 +2397,7 @@ async function suggest(value, revision) {
   if (!current()) return;
   if (matches?.length) return showAddressMatches(matches);
   const hint = matches ? "Keine passende Adresse. Ergänze Stadt oder PLZ oder prüfe die Hausnummer."
-    : "Adressdienst gerade nicht erreichbar. Gib stattdessen einen Ort oder eine PLZ ein.";
+    : "Live-Vorschläge nicht verfügbar. Tippe auf Firmen finden, um die Adresse über den Ausweichdienst zu prüfen.";
   showSugg(`<div class="s-hint">${hint}</div>`);
 }
 async function doCrawl(){
@@ -2323,7 +2424,7 @@ async function doCrawl(){
   toast(`Fertig: ${j} mit Jobseite, ${m} mit E-Mail`);
 }
 function fill(s, x){ return s.replace(/\{firma\}/g, () => x.name).replace(/\{name\}/g, () => tpl.name || ""); }
-function applicationBody(template, x) {
+function applicationGreeting(x) {
   const person = x.c?.person;
   let greeting = `Guten Tag an das Team von ${x.name}`;
   if (person) {
@@ -2332,10 +2433,17 @@ function applicationBody(template, x) {
     else if (person.address === "Herr") greeting = `Sehr geehrter Herr ${named}`;
     else greeting = `Guten Tag ${named}`;
   }
+  return greeting;
+}
+function applicationBody(template, x) {
+  const greeting = applicationGreeting(x);
   const body = fill(template, x);
   if (body.includes("{anrede}")) return body.replace(/\{anrede\}/g, () => greeting);
   const generic = /^(\s*)(?:(?:Guten Tag|Hallo|Moin|Hi)(?:[ ,]+(?:zusammen|allerseits|(?:liebes )?Team(?: von [^,\r\n]+)?))?|Sehr geehrte Damen und Herren|Liebes Team)[!,]?(?=\r?\n|$)/i;
   return body.replace(generic, (_, space) => space + greeting + ",");
+}
+function openApplicationMail(mail, subject, body) {
+  openUrl("mailto:" + mail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
 }
 async function applyByMail(x) {
   if (applicationsInProgress.has(x)) return;
@@ -2354,7 +2462,7 @@ async function applyByMail(x) {
     const profile = specialtyProfile(S.q?.term);
     const subject = profile && tpl.subj === DEFAULT_TPL.subj
       ? `Initiativbewerbung – ${profile.label}` : fill(tpl.subj, x);
-    openUrl("mailto:" + mail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(applicationBody(tpl.body, x)));
+    openApplicationMail(mail, subject, applicationBody(tpl.body, x));
   } finally {
     applicationsInProgress.delete(x);
   }
@@ -2369,6 +2477,100 @@ async function scanBusiness(x) {
   render();
   statusSummary();
   if (x.c?.error) toast(x.c.error);
+}
+
+/* ---------- Bewerbungsassistent ---------- */
+const APPLICATION_QUESTIONS = [
+  {key:"role", label:"Was suchst du?", options:{minijob:"Minijob", werkstudent:"Werkstudentin", teilzeit:"Teilzeit", praktikum:"Praktikum", offen:"Offen"}},
+  {key:"experience", label:"Hast du Erfahrung in der Branche?", options:{einstieg:"Einstieg", erfahrung:"Erfahrung", skip:"Überspringen"}},
+  {key:"time", label:"Wann kannst du arbeiten?", options:{flexibel:"Flexibel", morgens:"Vormittags", abends:"Abends", wochenende:"Wochenende", skip:"Überspringen"}},
+  {key:"strength", label:"Was ist deine Stärke?", options:{zuverlaessig:"Zuverlässig", organisiert:"Organisiert", lernbereit:"Lernbereit", kommunikativ:"Kommunikativ", skip:"Überspringen"}}
+];
+let assistant = null;
+let assistantConfig = store.get("jr_assistant", null);
+
+function openAssistant(x, trigger) {
+  assistant = {x, trigger, answers:{}, step:0, busy:false, draft:null};
+  $("assistantCompany").textContent = x.name;
+  $("assistantBackdrop").classList.add("open");
+  $("assistantSheet").classList.add("open");
+  renderAssistant();
+}
+function closeAssistant() {
+  const trigger = assistant?.trigger;
+  assistant = null;
+  $("assistantBackdrop").classList.remove("open");
+  $("assistantSheet").classList.remove("open");
+  document.activeElement?.blur();
+  (trigger?.isConnected ? trigger : document.querySelector(".card [data-a=assistant]"))?.focus();
+}
+function templateDraft(x, answers) {
+  const role = {minijob:"einem Minijob", werkstudent:"einer Stelle als Werkstudentin", teilzeit:"einer Teilzeitstelle", praktikum:"einem Praktikum"}[answers.role];
+  const title = APPLICATION_QUESTIONS[0].options[answers.role];
+  const subject = role ? `Initiativbewerbung – ${title}` : "Initiativbewerbung";
+  const opening = role ? `ich bin auf der Suche nach ${role} und würde gerne bei ${x.name} mitarbeiten.`
+    : `ich interessiere mich für eine Mitarbeit bei ${x.name} und möchte mich bei Ihnen initiativ bewerben.`;
+  const experience = {einstieg:"Ich möchte in die Branche einsteigen.", erfahrung:"Ich bringe Erfahrung in der Branche mit."}[answers.experience];
+  const availability = {flexibel:"Zeitlich bin ich flexibel.", morgens:"Ich kann vormittags arbeiten.", abends:"Ich kann abends arbeiten.", wochenende:"Ich kann am Wochenende arbeiten."}[answers.time];
+  const strength = {zuverlaessig:"Ich arbeite zuverlässig.", organisiert:"Ich arbeite strukturiert und organisiert.", lernbereit:"Ich arbeite mich gern in neue Aufgaben ein.", kommunikativ:"Ich kommuniziere offen und gerne."}[answers.strength];
+  const facts = [experience, strength, availability].filter(Boolean).join(" ");
+  return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
+}
+async function aiDraft(config, x, answers) {
+  const input = new URLSearchParams({code:config.code, company:x.name.slice(0,140), industry:(x.kind || "").slice(0,80), ...answers});
+  const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
+  if (!reply.ok) return null;
+  const parsed = JSON.parse(reply.text);
+  if (typeof parsed.subject !== "string" || !parsed.subject.trim() || parsed.subject.length > 150 || /[\r\n]/.test(parsed.subject)
+    || typeof parsed.body !== "string" || !parsed.body.trim() || parsed.body.length > 2000) return null;
+  return {subject:parsed.subject.trim(), body:parsed.body.trim()};
+}
+async function generateAssistantDraft(useAI) {
+  const state = assistant;
+  if (!state || state.busy) return;
+  const config = useAI ? assistantConfig : null;
+  const {x, answers} = state;
+  state.busy = true;
+  renderAssistant();
+  const contact = needsContactScan(x) ? scanContact(x).then(() => { save(); rerenderCard(x); updateCrawlBtn(); }) : Promise.resolve();
+  const generated = config ? await aiDraft(config, x, answers).catch(() => null) : null;
+  await contact;
+  if (assistant !== state) return;
+  const content = generated || templateDraft(x, answers);
+  const body = [`${applicationGreeting(x)},`, content.body, ["Mit freundlichen Grüßen", tpl.name].filter(Boolean).join("\n")].join("\n\n");
+  state.draft = {subject:content.subject, body, source:generated ? "KI-Entwurf" : config ? "KI gerade nicht verfügbar · Entwurf aus Vorlage" : "Entwurf aus Vorlage"};
+  state.busy = false;
+  renderAssistant();
+}
+function renderAssistant() {
+  const {x, step, answers, busy, draft} = assistant;
+  const box = $("assistantContent");
+  if (busy) {
+    box.innerHTML = '<p class="assistant-step" role="status">Entwurf wird vorbereitet<span class="dots"></span></p>';
+  } else if (draft) {
+    const mail = emailsOf(x)[0];
+    box.innerHTML = `<p class="hint">${esc(draft.source)}</p>
+      <label class="lbl" for="draftSubject">Betreff</label><input id="draftSubject" maxlength="150">
+      <label class="lbl" for="draftBody">E-Mail</label><textarea id="draftBody"></textarea>
+      <p class="hint">${mail ? `An ${esc(mail)}` : "Keine E-Mail-Adresse gefunden. Du kannst den Entwurf kopieren."}</p>
+      <button class="primary" type="button" data-ass="mail" ${mail ? "" : "disabled"}>In Mail öffnen</button>
+      <div class="assistant-nav"><button class="link" type="button" data-ass="answers">Antworten ändern</button><button class="link" type="button" data-ass="copy">Kopieren</button></div>`;
+    $("draftSubject").value = draft.subject;
+    $("draftBody").value = draft.body;
+  } else if (step === APPLICATION_QUESTIONS.length) {
+    box.innerHTML = `<p class="assistant-step">Dein Entwurf</p>
+      ${assistantConfig ? '<p class="hint">Für den KI-Entwurf werden Firma, Branche und deine Antworten an den verbundenen Dienst gesendet.</p><button class="primary" type="button" data-ass="ai">KI-Entwurf erstellen</button>' : ""}
+      <button class="${assistantConfig ? "ghost" : "primary"}" type="button" data-ass="template">Entwurf aus Vorlage erstellen</button>
+      <div class="assistant-nav"><button class="link" type="button" data-ass="back">Zurück</button></div>`;
+  } else {
+    const question = APPLICATION_QUESTIONS[step];
+    const buttons = Object.entries(question.options).map(([value, label]) =>
+      `<button class="ghost" type="button" data-answer="${value}" aria-pressed="${answers[question.key] === value}">${label}</button>`).join("");
+    box.innerHTML = `<h3 class="assistant-step" tabindex="-1">${question.label}</h3><div class="assistant-choices">${buttons}</div>
+      <div class="assistant-nav"><button class="link" type="button" data-ass="back" ${step ? "" : "hidden"}>Zurück</button><span class="hint">${step + 1} / ${APPLICATION_QUESTIONS.length}</span></div>`;
+  }
+  $("assistantSheet").scrollTop = 0;
+  (box.querySelector(".assistant-step[tabindex]") || box.querySelector("button:not([disabled])") || $("assistantClose")).focus({preventScroll:true});
 }
 
 function action(x, a){
@@ -2444,10 +2646,15 @@ async function addWebsite(event) {
 /* ---------- Einstellungen */
 function openSheet(){
   $("tName").value = tpl.name; $("tSubj").value = tpl.subj; $("tBody").value = tpl.body;
+  $("assistantUrl").value = assistantConfig?.url || "";
+  $("assistantCode").value = assistantConfig?.code || "";
+  $("assistantSetup").open = false;
+  $("sheet").scrollTop = 0;
   $("bd").classList.add("open"); $("sheet").classList.add("open");
 }
 function closeSheet(){ $("bd").classList.remove("open"); $("sheet").classList.remove("open"); document.activeElement && document.activeElement.blur(); }
 window.handleBack = function(){
+  if (assistant) { closeAssistant(); return true; }
   if ($("sheet").classList.contains("open")) { closeSheet(); return true; }
   if (render.editing && S.q) { render.editing = false; render(); statusSummary(); return true; }
   if (view === "map" && mapSel) { mapSel = null; render(); return true; }
@@ -2495,7 +2702,9 @@ $("filters").onclick = e => { const c = e.target.closest(".chip"); if (!c) retur
 $("list").onclick = e => {
   const b = e.target.closest(".act"); if (!b) return;
   const id = b.closest(".card").dataset.id, x = S.items.find(i => i.id === id);
-  if (x) action(x, b.dataset.a);
+  if (!x) return;
+  if (b.dataset.a === "assistant") openAssistant(x, b);
+  else action(x, b.dataset.a);
 };
 $("crawl").onclick = doCrawl;
 $("websiteForm").onsubmit = addWebsite;
@@ -2512,6 +2721,64 @@ $("viewseg").onclick = e => { const b = e.target.closest("button"); if (!b) retu
 $("share").onclick = shareList;
 $("gear").onclick = openSheet;
 $("bd").onclick = closeSheet;
+$("assistantBackdrop").onclick = closeAssistant;
+$("assistantClose").onclick = closeAssistant;
+$("assistantSheet").addEventListener("keydown", event => {
+  if (event.key === "Escape") { event.preventDefault(); closeAssistant(); }
+});
+$("assistantContent").onclick = async e => {
+  const button = e.target.closest("button");
+  if (!button || !assistant || assistant.busy) return;
+  const value = button.dataset.answer;
+  const question = APPLICATION_QUESTIONS[assistant.step];
+  if (value && question && Object.hasOwn(question.options, value)) {
+    assistant.answers[question.key] = value;
+    assistant.step++;
+    renderAssistant();
+  } else if (button.dataset.ass === "back") {
+    assistant.step--;
+    renderAssistant();
+  } else if (button.dataset.ass === "answers") {
+    assistant.draft = null;
+    assistant.step = 0;
+    renderAssistant();
+  } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
+    await generateAssistantDraft(button.dataset.ass === "ai");
+  } else if (button.dataset.ass === "mail") {
+    const mail = emailsOf(assistant.x)[0];
+    if (mail) openApplicationMail(mail, $("draftSubject").value, $("draftBody").value);
+  } else if (button.dataset.ass === "copy") {
+    const body = $("draftBody");
+    try {
+      await navigator.clipboard.writeText(body.value);
+      toast("E-Mail-Text kopiert");
+    } catch (_) {
+      if (!body.isConnected) return;
+      body.select();
+      if (document.execCommand("copy")) toast("E-Mail-Text kopiert");
+      else toast("Text markiert. Halte ihn zum Kopieren gedrückt.");
+    }
+  }
+};
+$("assistantConfig").onsubmit = event => {
+  event.preventDefault();
+  const address = $("assistantUrl").value.trim();
+  const code = $("assistantCode").value.trim();
+  if (!address && !code) {
+    assistantConfig = null;
+  } else {
+    let url;
+    try { url = new URL(address); } catch (_) {}
+    if (!url || url.protocol !== "https:" || url.username || url.password || url.search || url.hash || code.length < 24) {
+      toast("Bitte HTTPS-Serveradresse und gültigen Zugangscode eingeben");
+      return;
+    }
+    assistantConfig = {url:url.href, code};
+  }
+  store.set("jr_assistant", assistantConfig);
+  $("assistantSetup").open = false;
+  toast(assistantConfig ? "Verbindung gespeichert" : "Verbindung entfernt");
+};
 $("tSave").onclick = () => { tpl = {name: $("tName").value.trim(), subj: $("tSubj").value, body: $("tBody").value}; store.set("jr_tpl", tpl); closeSheet(); toast("Gespeichert"); };
 $("upBtn").onclick = () => pendingUpdate ? installUpdate() : checkUpdate(true);
 $("bannerB").onclick = installUpdate;
