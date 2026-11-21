@@ -1,0 +1,83 @@
+name: Deploy JobRadar assistant
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jobradar-assistant-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Prepare Worker secrets
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ASSISTANT_CODE: ${{ secrets.ASSISTANT_CODE }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          for name in OPENAI_API_KEY ASSISTANT_CODE CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Add $name in GitHub Actions secrets before deploying."
+              exit 1
+            fi
+          done
+          if [[ ! "$ASSISTANT_CODE" =~ ^[A-Za-z0-9_-]{24,128}$ ]]; then
+            echo '::error::Use a random access code of 24–128 letters, numbers, underscores, or hyphens.'
+            exit 1
+          fi
+          umask 077
+          jq -n '{OPENAI_API_KEY: env.OPENAI_API_KEY, ASSISTANT_CODE: env.ASSISTANT_CODE}' > "$RUNNER_TEMP/jobradar-worker-secrets.json"
+      - name: Deploy assistant
+        id: worker
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: assistant
+          wranglerVersion: '4.157.0'
+          command: deploy --secrets-file ${{ runner.temp }}/jobradar-worker-secrets.json
+      - name: Verify a sample AI draft
+        env:
+          WORKER_URL: ${{ steps.worker.outputs.deployment-url }}
+          ASSISTANT_CODE: ${{ secrets.ASSISTANT_CODE }}
+        run: |
+          python3 - <<'PY'
+          import http.client
+          import json
+          import os
+          import re
+          from urllib.parse import urlencode
+
+          worker = re.fullmatch(r"https://(jobradar-assistant\.[a-z0-9-]+\.workers\.dev)/?", os.environ["WORKER_URL"])
+          if not worker:
+              raise SystemExit("No jobradar-assistant workers.dev URL returned by Wrangler.")
+          host = worker[1]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"**JobRadar Serveradresse** `https://{host}/draft`\n\n")
+              data = urlencode({"code": os.environ["ASSISTANT_CODE"], "company": "Beispielbetrieb",
+                               "industry": "Einzelhandel", "role": "minijob", "experience": "skip",
+                               "time": "abends", "strength": "organisiert"})
+              connection = http.client.HTTPSConnection(host, timeout=25)
+              connection.request("POST", "/draft", data, {"Content-Type": "application/x-www-form-urlencoded"})
+              response = connection.getresponse()
+              if response.status != 200:
+                  raise SystemExit(f"The sample draft failed with HTTP {response.status}. Check the Worker and OpenAI API project.")
+              draft = json.loads(response.read(12000))
+              if not all(isinstance(draft.get(key), str) and draft[key].strip() for key in ("subject", "body")):
+                  raise SystemExit("The response did not contain an email subject and body.")
+              summary.write("The Worker generated a sample draft successfully.\n")
+          PY
+      - name: Remove temporary secrets file
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/jobradar-worker-secrets.json"
