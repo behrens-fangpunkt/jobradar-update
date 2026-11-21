@@ -57,14 +57,35 @@ jobs:
           import json
           import os
           import re
+          import time
           from urllib.parse import urlencode
 
           worker = re.fullmatch(r"https://(jobradar-assistant\.[a-z0-9-]+\.workers\.dev)/?", os.environ["WORKER_URL"])
           if not worker:
               raise SystemExit("No jobradar-assistant workers.dev URL returned by Wrangler.")
           host = worker[1]
+
+          def wait_for_worker():
+              for attempt in range(8):
+                  connection = http.client.HTTPSConnection(host, timeout=5)
+                  try:
+                      connection.request("GET", "/draft")
+                      response = connection.getresponse()
+                      if response.status == 405:
+                          return
+                      if response.status not in (404, 502, 503, 504):
+                          raise SystemExit(f"The Worker readiness check failed with HTTP {response.status}.")
+                  except OSError:
+                      pass
+                  finally:
+                      connection.close()
+                  if attempt < 7:
+                      time.sleep(4)
+              raise SystemExit("The deployed Worker did not become reachable in time for the sample draft.")
+
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
               summary.write(f"**JobRadar Serveradresse** `https://{host}/draft`\n\n")
+              wait_for_worker()
               data = urlencode({"code": os.environ["ASSISTANT_CODE"], "company": "Beispielbetrieb",
                                "industry": "Einzelhandel", "role": "minijob", "experience": "skip",
                                "time": "abends", "strength": "organisiert"})
