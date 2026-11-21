@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="7">
+<meta name="jr-version" content="8">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -735,6 +735,12 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .status{color:var(--mute);font-size:13px;margin:10px 2px 10px;min-height:1px}
 .status.err{color:var(--warn)}
 .status{white-space:pre-line}
+.discovery{margin:0 0 12px;font-size:14px}
+.discovery summary,.discovery a{color:var(--acc);font-weight:600;cursor:pointer}
+.discovery summary{padding:8px 4px}
+.discovery form{padding:8px 12px;background:#fff;border-radius:14px}
+.discovery input,.discovery .ghost{width:100%;margin-bottom:8px}
+.discovery a{display:inline-block;margin:6px 4px;font-size:12px}
 .addr{position:relative}
 .aok{color:var(--ok)!important;display:none}
 .aok.on{display:block}
@@ -903,6 +909,20 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 <div class="viewseg hidden" id="viewseg"><button data-v="list"><svg><use href="#i-list"/></svg>Liste</button><button data-v="map"><svg><use href="#i-map"/></svg>Karte</button></div>
 <div class="filters hidden" id="filters"></div>
 <div class="status" id="status"></div>
+<section id="discoveryTools" class="discovery hidden">
+  <button type="button" class="link" id="webDiscovery">Weitere Firmen im Web suchen</button>
+  <details id="websiteDetails">
+    <summary>Firmenwebsite hinzufügen</summary>
+    <form id="websiteForm">
+      <label class="lbl" for="websiteUrl">Firmenwebsite</label>
+      <input type="text" id="websiteUrl" inputmode="url" autocomplete="url" placeholder="firma.de" required>
+      <label class="lbl" for="websiteName">Firmenname (optional)</label>
+      <input type="text" id="websiteName" placeholder="Firmenname">
+      <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
+    </form>
+  </details>
+  <a id="overtureCredit" class="hidden" href="https://docs.overturemaps.org/attribution/#places">Firmendaten Leipzig · Overture Maps Foundation</a>
+</section>
 <div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
   <div class="legend"><span><i style="background:#0E7C55"></i>Jobseite</span><span><i style="background:#4F46E5"></i>Kontakt</span><span><i style="background:#9C9AB0"></i>noch offen</span><span><i style="background:#D6D4E3"></i>beworben</span></div>
   <button class="link" id="tileBtn" style="font-size:13px;padding:6px 2px">Karte lädt nicht richtig? Anderen Kartenstil nehmen (<span id="tileName"></span>)</button></div>
@@ -1076,6 +1096,126 @@ const netErr = r => r.status === 0 && /UnknownHost|Socket|ConnectException|Timeo
 function openUrl(u){ if (window.Native && Native.open) Native.open(u); else window.open(u, "_blank"); }
 
 /* ============================================================ Suche */
+const VISUALIZATION_TERMS = [
+  "3D Artist", "3D Visualisierung", "3D Visualisation", "3D Visualization", "Architekturvisualisierung",
+  "Architektur Visualisierung", "Visualisierung von Architektur", "Archviz", "3D Rendering",
+  "3D Modellierung", "3D Animation", "CGI Studio", "Renderstudio", "Motion Design"
+];
+const CREATIVE_SEARCHES = [
+  {
+    terms: VISUALIZATION_TERMS, label: "3D-Visualisierung",
+    primary: ["animation_studio", "architectural_designer", "graphic_designer", "design_service", "product_design"],
+    related: ["architect", "interior_design", "advertising_agency", "video_film_production"],
+    osm: ['[office~"^(graphic_design|designer|architect|advertising_agency)$"]',
+          '[craft~"^(graphic_designer|interior_decorator)$"]']
+  }, {
+    label: "Grafikdesign",
+    terms: ["Grafikdesign", "Grafikdesigner", "Graphic Designer", "Graphic Design", "Designstudio", "Designagentur",
+            "Kommunikationsdesign", "Webdesign", "Kreativagentur", "Werbeagentur"],
+    primary: ["graphic_designer", "design_service", "web_designer", "advertising_agency", "product_design"],
+    related: ["animation_studio", "video_film_production"],
+    osm: ['[office~"^(graphic_design|designer|advertising_agency)$"]', '[craft=graphic_designer]']
+  }, {
+    label: "Architektur",
+    terms: ["Architekt", "Architektin", "Architektur", "Architekturbüro", "Architecture Studio", "Innenarchitektur"],
+    primary: ["architect", "architectural_designer", "interior_design"],
+    related: ["design_service"],
+    osm: ['[office=architect]', '[craft=interior_decorator]']
+  }
+];
+const CREATIVE_LABELS = {
+  architectural_designer:"Architekturdesign", graphic_designer:"Grafikdesign", design_service:"Designstudio",
+  animation_studio:"Animationsstudio", interior_design:"Innenarchitektur", product_design:"Produktdesign",
+  advertising_agency:"Werbeagentur", web_designer:"Webdesign", video_film_production:"Filmproduktion"
+};
+const LEIPZIG_PLACES_BOUNDS = [51.085, 12.0, 51.56, 12.76];
+const LEIPZIG_PLACES_FILE = "places/leipzig-2026-11-18.json";
+let leipzigPlaces;
+
+function searchText(value) {
+  return norm(value).replace(/[^a-z0-9]+/g, " ").trim();
+}
+function containsPhrase(text, phrase) {
+  const words = searchText(phrase);
+  return words.length > 0 && (" " + text + " ").includes(" " + words + " ");
+}
+function creativeProfile(term) {
+  const text = searchText(term);
+  return CREATIVE_SEARCHES.find(p => p.terms.some(t => containsPhrase(text, t)));
+}
+function matchingScore(profile, term, text, categories = []) {
+  const probe = searchText(text);
+  if (containsPhrase(probe, term)) return 5;
+  if (!profile) return 0;
+  const matched = profile.terms.filter(t => containsPhrase(probe, t));
+  if (profile.terms === VISUALIZATION_TERMS && matched.some(t => searchText(t).startsWith("3d "))) return 4.5;
+  if (matched.length) return 4;
+  if (categories.some(c => profile.primary.includes(c))) return 3;
+  return categories.some(c => profile.related.includes(c)) ? 1 : 0;
+}
+function websiteKey(website) {
+  try {
+    const url = new URL(/^https?:\/\//i.test(website) ? website : "https://" + website);
+    return url.hostname.toLowerCase().replace(/^www\./, "") + url.pathname.replace(/\/+$/, "");
+  } catch (_) { return ""; }
+}
+function rankBusinesses(a, b) {
+  return (b.relevance || 0) - (a.relevance || 0) || a.km - b.km;
+}
+
+async function regionalSearch(term, loc, km, profile) {
+  const [south, west, north, east] = LEIPZIG_PLACES_BOUNDS;
+  const dLat = km / 111, dLon = km / (111 * Math.cos(loc.lat * Math.PI / 180));
+  if (loc.lat + dLat < south || loc.lat - dLat > north ||
+      loc.lon + dLon < west || loc.lon - dLon > east) return [];
+  if (!leipzigPlaces) {
+    const url = new URL(LEIPZIG_PLACES_FILE, UPDATE_URL).href;
+    leipzigPlaces = request(url, {timeout: 10000, max: 1500000}).then(r => {
+      if (!r.ok) throw new Error("Firmenindex nicht erreichbar");
+      const rows = JSON.parse(r.text);
+      if (!Array.isArray(rows)) throw new Error("Firmenindex ungültig");
+      return rows;
+    }).catch(() => { leipzigPlaces = null; return []; });
+  }
+  const rows = await leipzigPlaces, matches = [];
+  for (const [id, name, lat, lon, website, types, address] of rows) {
+    const distance = haversine(loc.lat, loc.lon, lat, lon);
+    if (distance > km) continue;
+    const categories = types.split(",");
+    const relevance = matchingScore(profile, term, name, categories);
+    if (!relevance) continue;
+    const labelFor = category => CREATIVE_LABELS[category] || KIND_DE[category];
+    const specific = categories.filter(c => c !== "design_service" && labelFor(c));
+    const category = specific.find(c => profile?.primary.includes(c)) || specific[0] || categories[0];
+    const kind = labelFor(category) || "";
+    matches.push({id:"overture:" + id, source:"overture", name, lat, lon, website, address, kind,
+                  km:Math.round(distance * 10) / 10, relevance, email:"", phone:""});
+  }
+  return matches.sort(rankBusinesses);
+}
+
+function combineBusinesses(osm, regional) {
+  const results = osm.slice();
+  const indexed = new Set();
+  const mapBySite = new Map();
+  for (const x of osm) {
+    const site = websiteKey(x.website);
+    if (!site) continue;
+    if (!mapBySite.has(site)) mapBySite.set(site, []);
+    mapBySite.get(site).push(x);
+  }
+  for (const x of regional) {
+    const site = websiteKey(x.website);
+    if (indexed.has(site)) continue;
+    indexed.add(site);
+    const existing = mapBySite.get(site)?.find(y => haversine(x.lat, x.lon, y.lat, y.lon) < 0.3);
+    if (existing) existing.relevance = Math.max(existing.relevance || 0, x.relevance);
+    else results.push(x);
+  }
+  return results.sort(rankBusinesses);
+}
+
+
 function filtersFor(term){
   const t = norm(term), out = [];
   for (const [names, flt] of BRANCHEN) {
@@ -1088,9 +1228,16 @@ function filtersFor(term){
 }
 function buildQuery(term, lat, lon, radiusM){
   const around = `(around:${Math.round(radiusM)},${lat.toFixed(6)},${lon.toFixed(6)})`;
-  const parts = filtersFor(term).map(f => `nwr${around}${f}[name];`);
-  const safe = term.trim().replace(/["\\]/g, "").replace(/[\[\](){}.*+?^$|]/g, "\\\\$&");
-  if (safe) parts.push(`nwr${around}[name~"${safe}",i][~"^(${BUSINESS_KEYS})$"~"."];`);
+  const profile = creativeProfile(term);
+  const parts = (profile ? profile.osm : filtersFor(term)).map(f => `nwr${around}${f}[name];`);
+  const phrase = value => value.trim().slice(0,120).replace(/["\\]/g, "")
+    .replace(/[\[\](){}.*+?^$|]/g, "\\\\$&").replace(/[-\s]+/g, "[ -]*");
+  const pattern = uniq([term, ...(profile ? profile.terms : [])].map(phrase).filter(Boolean)).join("|");
+  if (pattern) {
+    const keys = profile || !parts.length ? "name|official_name|alt_name|brand|description(:de)?|service" : "name";
+    const match = keys === "name" ? pattern : `(^|[^[:alnum:]])(${pattern})([^[:alnum:]]|$)`;
+    parts.push(`nwr${around}[~"^(${keys})$"~"${match}",i][~"^(${BUSINESS_KEYS})$"~"."];`);
+  }
   return `[out:json][timeout:45];(${parts.join("")});out center tags 400;`;
 }
 function haversine(a, b, c, d){
@@ -1098,7 +1245,7 @@ function haversine(a, b, c, d){
   const h = Math.sin((p2-p1)/2)**2 + Math.cos(p1)*Math.cos(p2)*Math.sin(r(d-b)/2)**2;
   return 12742 * Math.asin(Math.sqrt(h));
 }
-function parseElements(data, lat, lon){
+function parseElements(data, lat, lon, term = "", profile = null){
   const out = [], seen = new Set();
   for (const el of (data.elements || [])) {
     const t = el.tags || {};
@@ -1112,8 +1259,10 @@ function parseElements(data, lat, lon){
     if (seen.has(key)) continue; seen.add(key);
     const kk = BUSINESS_KEYS.split("|").find(k => t[k]);
     const kind = kk ? t[kk].split(";")[0] : "";
+    const evidence = [t.name, t.official_name, t.alt_name, t.brand, t.description, t["description:de"], t.service].filter(Boolean).join(" ");
     out.push({
-      id: key, name: t.name, kind: KIND_DE[kind] || kind.replace(/_/g," "),
+      id: key, name: t.name, kind: CREATIVE_LABELS[kind] || KIND_DE[kind] || kind.replace(/_/g," "),
+      relevance: matchingScore(profile, term, evidence) || (profile ? 1 : 0),
       address: [street, city].filter(Boolean).join(", "),
       km: Math.round(haversine(lat, lon, la, lo) * 10) / 10,
       website: t.website || t["contact:website"] || t.url || "",
@@ -1170,15 +1319,16 @@ async function resolveAddress(text){
 }
 
 /* ---------- Firmensuche: Overpass, Fallback Nominatim */
-async function overpassSearch(term, loc, km, errs, step){
+async function overpassSearch(term, loc, km, errs, step, endpointCount = OVERPASS.length){
   const data = encodeURIComponent(buildQuery(term, loc.lat, loc.lon, km * 1000));
+  const profile = creativeProfile(term);
   let netFails = 0;
-  for (const ep of OVERPASS) {
+  for (const ep of OVERPASS.slice(0, endpointCount)) {
     const host = new URL(ep).hostname.replace(/^overpass[.-]/, "");
     step("Firmen im Umkreis werden gesucht …", "Kartenserver: " + host);
-    const r = await fetchRetry(ep + "?data=" + data, {timeout: 15000, max: 20000000}, 1);
+    const r = await fetchRetry(ep + "?data=" + data, {timeout: endpointCount === 1 ? 6500 : 15000, max: 20000000}, endpointCount === 1 ? 0 : 1);
     if (r.ok) {
-      try { return parseElements(JSON.parse(r.text), loc.lat, loc.lon); }
+      try { return parseElements(JSON.parse(r.text), loc.lat, loc.lon, term, profile); }
       catch(e){ errs.push(host + ": Antwort unlesbar"); continue; }
     }
     errs.push(host + ": " + (r.status || r.error || "keine Verbindung"));
@@ -1212,19 +1362,24 @@ async function nominatimSearch(term, loc, km, errs){
   return parseElements({elements}, loc.lat, loc.lon).filter(x => x.km <= km);
 }
 async function search(term, loc, km, step){
-  const errs = [];
-  step("Firmen im Umkreis werden gesucht …", "Kartendaten von OpenStreetMap");
-  let res = await overpassSearch(term, loc, km, errs, step), source = "overpass";
-  if (!res) {
+  const errs = [], profile = creativeProfile(term);
+  step("Firmen im Umkreis werden gesucht …", "Branchen, Firmennamen und Leistungen");
+  const regional = await regionalSearch(term, loc, km, profile);
+  let res = await overpassSearch(term, loc, km, errs, step, regional.length ? 1 : OVERPASS.length);
+  let source = regional.length ? "overture" : "overpass";
+  if (!res && !regional.length) {
     step("Ausweichsuche läuft …", "Hauptserver hakt – versuche einen anderen Weg");
     res = await nominatimSearch(term, loc, km, errs); source = "nominatim";
   }
-  if (!res) {
+  if (!res && !regional.length) {
     const allNet = errs.every(e => /Exception|keine Verbindung/i.test(e));
     throw new Error((allNet ? "Keine stabile Internetverbindung. WLAN oder mobile Daten prüfen und nochmal versuchen."
                             : "Kartenserver gerade nicht erreichbar. In einer Minute nochmal versuchen.") + "\n\nDetails: " + uniq(errs).join(" · "));
   }
-  return {known: filtersFor(term).length > 0 || source === "nominatim", source, results: res};
+  const candidates = combineBusinesses(res || [], regional);
+  const limit = profile ? 80 : 400;
+  return {known: !!profile || filtersFor(term).length > 0 || regional.length > 0 || source === "nominatim",
+          source, limited:candidates.length > limit, results:candidates.slice(0, limit)};
 }
 
 /* ============================================================ Crawler */
@@ -1259,6 +1414,7 @@ function parseContactName(value, roleAddress = "") {
   if (explicit) value = value.slice(explicit[0].length);
   const title = /^(?:Prof\.\s+)?Dr\.(?:\s+(?:med\.\s+dent\.|med\.|rer\.\s+nat\.))?\s+|^Prof\.\s+/i.exec(value);
   if (title) value = value.slice(title[0].length);
+  value = value.replace(/^(?:(?:B|M)\.\s*(?:A|Sc|Eng|Ed|Mus)\.\s+|MBA\s+|Dipl\.-(?:Ing|Des|Kfm)\.\s+)+/i, "");
   const name = value.split(/\s*[,;(|]|\s+[–—-]\s+/u, 1)[0].trim();
   const words = name.split(/\s+/);
   if (name.length > 85 || words.length < (explicit ? 1 : 2) || words.length > 6 || NON_PERSON.test(name)) return null;
@@ -1373,7 +1529,8 @@ function extract(html){
   const cleanPhones = phones.map(p => p.replace(/\s+/g," ").trim()).filter(p => p.replace(/\D/g,"").length >= 6);
   const low = text.toLowerCase();
   const hints = HINT_KW.filter(h => low.includes(h.toLowerCase()));
-  return {links, mails, phones: cleanPhones, hints, people: extractPeople(doc.body)};
+  const orgName = doc.querySelector('meta[property="og:site_name"]')?.content || doc.title;
+  return {links, mails, phones: cleanPhones, hints, people: extractPeople(doc.body), orgName};
 }
 function sameBusinessSite(host, site) {
   const a = host.toLowerCase().replace(/^www\./, "");
@@ -1390,6 +1547,8 @@ async function crawl(site){
   if (!r.ok) { res.error = r.status ? "Webseite antwortet nicht (" + r.status + ")" : "Webseite nicht erreichbar"; return res; }
   const final = r.url || url;
   const home = extract(r.text);
+  res.orgName = home.orgName.trim();
+  res.contactVersion = 2;
   let mails = home.mails, phones = home.phones, hints = home.hints, jobMails = [];
   const homeURL = new URL(final);
   const people = home.people;
@@ -1506,7 +1665,7 @@ const save = () => store.set("jr_last", S);
 
 const emailsOf = x => uniq([x.email, ...(x.c ? x.c.emails : [])].filter(Boolean).flatMap(e => e.split(/[;,]\s*/)))
   .filter(m => !THIRD_PARTY_MAIL.test(m));
-const needsContactScan = x => !!x.website && (!x.c || !Object.hasOwn(x.c, "person"));
+const needsContactScan = x => !!x.website && (!x.c || (!x.c.person && x.c.contactVersion !== 2));
 const contactScans = new WeakMap();
 const applicationsInProgress = new WeakSet();
 function scanContact(x) {
@@ -1539,6 +1698,10 @@ function card(x){
   if (c && c.jobs) b += `<span class="badge ok">Jobseite</span>`;
   if (c) c.hints.slice(0, 4).forEach(h => b += `<span class="badge gold">${esc(h)}</span>`);
   if (ap) b += `<span class="badge done">✓ Beworben</span>`;
+  const profile = creativeProfile(S.q?.term);
+  if (profile && x.relevance && x.relevance <= (profile.terms === VISUALIZATION_TERMS ? 3 : 1)) {
+    b += `<span class="badge">Verwandte Branche</span>`;
+  }
   let contacts = "";
   if (c?.person) contacts += `<div>${icon("person")}<span>${esc(c.person.name)}</span></div>`;
   mails.slice(0, 2).forEach(m => contacts += `<div>${icon("mail")}<span>${esc(m)}</span></div>`);
@@ -1550,15 +1713,16 @@ function card(x){
   else if (!x.website && !mails.length && !phones.length) note = `<p class="note">Keine Webseite hinterlegt – über Google suchen.</p>`;
   let a = "";
   if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
+  else if (needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
   if (c && c.jobs) a += `<button class="act${mails.length ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
   if (phones.length) a += `<button class="act" data-a="call">${icon("phone")}Anrufen</button>`;
   if (x.website) a += `<button class="act" data-a="web">${icon("globe")}Webseite</button>`;
   if (!x.website || (c && !mails.length && !c.jobs)) a += `<button class="act" data-a="google">${icon("search")}Google</button>`;
-  a += `<button class="act" data-a="map">${icon("map")}Karte</button>`;
+  if (Number.isFinite(x.lat)) a += `<button class="act" data-a="map">${icon("map")}Karte</button>`;
   a += `<button class="act${ap ? " done" : ""}" data-a="applied">${icon("check")}${ap ? "Beworben" : "Erledigt"}</button>`;
   return `<article class="card${ap ? " applied" : ""}" data-id="${esc(x.id)}">
     <div class="c-head"><div class="c-title"><h3>${esc(x.name)}</h3><p>${esc([x.kind, x.address].filter(Boolean).join(" · "))}</p></div>
-    <span class="dist">${x.km.toFixed(1).replace(".", ",")} km</span></div>
+    ${Number.isFinite(x.km) ? `<span class="dist">${x.km.toFixed(1).replace(".", ",")} km</span>` : ""}</div>
     <div class="badges">${b}</div>${contacts ? `<div class="contacts">${contacts}</div>` : ""}${note}
     <div class="actions">${a}</div></article>`;
 }
@@ -1591,13 +1755,17 @@ function render(){
     $("sumS").textContent = S.q.origin;
   }
   renderFilters();
-  const v = visible(), showMap = view === "map" && S.items.length > 0;
-  $("viewseg").classList.toggle("hidden", !S.items.length);
+  const v = visible(), mapped = v.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
+  const showMap = view === "map" && mapped.length > 0;
+  $("discoveryTools").classList.toggle("hidden", !has || render.editing);
+  $("webDiscovery").classList.toggle("hidden", !!S.items.length && !!S.q?.known);
+  $("overtureCredit").classList.toggle("hidden", S.q?.source !== "overture");
+  $("viewseg").classList.toggle("hidden", !S.items.some(x => Number.isFinite(x.lat)));
   [...$("viewseg").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
   $("mapwrap").classList.toggle("hidden", !showMap);
   if (showMap) {
-    renderMap(v);
-    const sel = v.find(x => x.id === mapSel);
+    renderMap(mapped);
+    const sel = mapped.find(x => x.id === mapSel);
     $("list").innerHTML = sel ? card(sel) : `<p class="maphint">Tippe auf einen Punkt, um die Firma zu sehen.</p>`;
   } else {
     $("list").innerHTML = v.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
@@ -1619,11 +1787,12 @@ function updateCrawlBtn(done, total){
 function setStatus(t, err){ $("status").textContent = t || ""; $("status").classList.toggle("err", !!err); }
 function statusSummary(){
   const it = S.items; if (!S.q) return setStatus("");
-  if (!it.length) return setStatus("Keine Treffer. Anderen Begriff oder größeren Umkreis probieren.");
+  if (!it.length) return setStatus("Keine Treffer in den angebundenen Verzeichnissen.");
   const w = it.filter(x => x.website).length, c = it.filter(x => x.c).length;
   let t = `${it.length} Treffer · ${w} mit Webseite`;
   if (c) t += ` · ${it.filter(x => x.c && x.c.jobs).length} mit Jobseite`;
-  if (!S.q.known) t += " · Branche unbekannt, Suche nach Namen";
+  if (S.q.limited) t += " · passendste Treffer";
+  if (!S.q.known) t += " · Suche in Namen und Beschreibungen";
   if (S.q.source === "nominatim") t += " · über Ausweichserver (evtl. nicht vollständig)";
   setStatus(t);
 }
@@ -1671,7 +1840,7 @@ function renderMap(items){
   const circle = L.circle([c.lat, c.lon], {radius: (S.q ? S.q.km : 5) * 1000, color: "#4F46E5", weight: 2, opacity: .7, fillColor: "#4F46E5", fillOpacity: .06, interactive: false}).addTo(mapLayer);
   L.marker([c.lat, c.lon], {interactive: false, icon: L.divIcon({className: "", html: '<div class="me-pin"></div>', iconSize: [22, 22], iconAnchor: [11, 11]})}).addTo(mapLayer);
   // ausgewaehlte Firma zuletzt zeichnen, damit sie oben liegt
-  items.slice().sort((a, b) => (a.id === mapSel) - (b.id === mapSel)).forEach(x => {
+  items.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon)).sort((a, b) => (a.id === mapSel) - (b.id === mapSel)).forEach(x => {
     const sel = x.id === mapSel;
     const m = L.circleMarker([x.lat, x.lon], {radius: sel ? 11 : 7.5, color: sel ? "#17162B" : "#fff", weight: sel ? 3 : 2, fillColor: pinColor(x), fillOpacity: 1, bubblingMouseEvents: false}).addTo(mapLayer);
     m.on("click", () => { mapSel = x.id; render(); const el = document.querySelector("#list .card"); if (el) el.scrollIntoView({behavior: "smooth", block: "nearest"}); });
@@ -1685,7 +1854,7 @@ function renderMap(items){
 function setLoading(on, title, sub){
   $("loading").classList.toggle("hidden", !on);
   if (on) {
-    $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
+    $("discoveryTools").classList.add("hidden"); $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
     $("ldT").innerHTML = esc((title || "").replace(/\s*…$/, "")) + '<span class="dots"></span>';
     $("ldS").textContent = sub || "";
   }
@@ -1704,7 +1873,7 @@ async function doSearch(){
     const loc = await resolveAddress(addr);
     setChosen(loc);
     const r = await search(term, loc, radius, (t, sub) => setLoading(true, t, sub));
-    S = {q: {term, addr: loc.label, km: radius, origin: loc.label, known: r.known, source: r.source, lat: loc.lat, lon: loc.lon}, items: r.results};
+    S = {q: {term, addr: loc.label, km: radius, origin: loc.label, known: r.known, source: r.source, limited: r.limited, lat: loc.lat, lon: loc.lon}, items: r.results};
     mapSel = null; mapFitKey = "";
     filter = "all"; render.editing = false; save();
     setLoading(false); render(); statusSummary();
@@ -1753,7 +1922,7 @@ async function doCrawl(){
   await Promise.all([worker(), worker(), worker(), worker()]);
   running = false;
   const score = x => (x.c && x.c.jobs ? 2 : 0) + (emailsOf(x).length ? 1 : 0);
-  S.items.sort((a, b) => score(b) - score(a) || a.km - b.km);
+  S.items.sort((a, b) => score(b) - score(a) || rankBusinesses(a, b));
   save(); render(); statusSummary();
   const j = S.items.filter(x => x.c && x.c.jobs).length, m = S.items.filter(x => emailsOf(x).length).length;
   toast(`Fertig: ${j} mit Jobseite, ${m} mit E-Mail`);
@@ -1787,14 +1956,30 @@ async function applyByMail(x) {
     const mail = emailsOf(x)[0];
     if (!mail) { toast("Keine passende E-Mail-Adresse gefunden"); return; }
     if (!tpl.name) toast("Tipp: Oben rechts deinen Namen eintragen");
-    openUrl("mailto:" + mail + "?subject=" + encodeURIComponent(fill(tpl.subj, x)) + "&body=" + encodeURIComponent(applicationBody(tpl.body, x)));
+    const profile = creativeProfile(S.q?.term);
+    const subject = profile && tpl.subj === DEFAULT_TPL.subj
+      ? `Initiativbewerbung – ${profile.label}` : fill(tpl.subj, x);
+    openUrl("mailto:" + mail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(applicationBody(tpl.body, x)));
   } finally {
     applicationsInProgress.delete(x);
   }
 }
+async function scanBusiness(x) {
+  if (x.state === "run") return;
+  x.state = "run";
+  rerenderCard(x);
+  await scanContact(x);
+  delete x.state;
+  save();
+  render();
+  statusSummary();
+  if (x.c?.error) toast(x.c.error);
+}
+
 function action(x, a){
   const phones = phonesOf(x);
   if (a === "mail") applyByMail(x);
+  else if (a === "scan") scanBusiness(x);
   else if (a === "jobs") openUrl(x.c.jobs);
   else if (a === "call") openUrl("tel:" + phones[0].replace(/[^\d+]/g, ""));
   else if (a === "web") openUrl(/^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website);
@@ -1811,7 +1996,8 @@ function shareList(){
   const v = visible();
   const lines = [`JobRadar – ${S.q.term}, ${S.q.km} km um ${S.q.addr}`, ""];
   v.forEach(x => {
-    lines.push((isApplied(x) ? "✓ " : "• ") + x.name + ` (${x.km.toFixed(1).replace(".", ",")} km)`);
+    const distance = Number.isFinite(x.km) ? ` (${x.km.toFixed(1).replace(".", ",")} km)` : "";
+    lines.push((isApplied(x) ? "✓ " : "• ") + x.name + distance);
     if (x.address) lines.push("  " + x.address);
     if (x.c && x.c.jobs) lines.push("  Jobs: " + x.c.jobs);
     emailsOf(x).slice(0, 2).forEach(m => lines.push("  " + m));
@@ -1822,6 +2008,41 @@ function shareList(){
   const text = lines.join("\n");
   if (window.Native && Native.share) Native.share(text);
   else if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast("Liste kopiert"), () => toast("Teilen nicht möglich"));
+}
+
+async function addWebsite(event) {
+  event.preventDefault();
+  if (!S.q) return;
+  const value = $("websiteUrl").value.trim(), name = $("websiteName").value.trim();
+  let url;
+  try { url = new URL(/^https?:\/\//i.test(value) ? value : "https://" + value); }
+  catch (_) { return toast("Bitte eine gültige Firmenwebsite eingeben"); }
+  if (!/^https?:$/.test(url.protocol) || !url.hostname.includes(".") || url.username || url.password || SOCIAL.test(url.hostname)) {
+    return toast("Bitte die Firmenwebsite direkt eingeben");
+  }
+  url.hash = "";
+  const site = websiteKey(url.href), existing = S.items.find(x => websiteKey(x.website) === site);
+  if (existing) return toast("Diese Website ist schon in der Liste");
+  const button = $("websiteSubmit"), searchState = S;
+  button.disabled = true;
+  button.textContent = "Suche Kontakte …";
+  try {
+    const c = await crawl(url.href);
+    if (c.error) { toast(c.error); return; }
+    if (S !== searchState) return;
+    const business = {id:"website:" + site, name:name || c.orgName || url.hostname, kind:"Website",
+                      website:url.href, email:"", phone:"", address:"", km:null, c};
+    S.items.unshift(business);
+    filter = "all"; view = "list"; save(); render(); statusSummary();
+    $("websiteForm").reset();
+    $("websiteDetails").open = false;
+    toast("Firma hinzugefügt");
+  } catch (_) {
+    toast("Die Firmenwebsite konnte nicht durchsucht werden");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Kontakte suchen und hinzufügen";
+  }
 }
 
 /* ---------- Einstellungen */
@@ -1857,6 +2078,14 @@ $("list").onclick = e => {
   if (x) action(x, b.dataset.a);
 };
 $("crawl").onclick = doCrawl;
+$("websiteForm").onsubmit = addWebsite;
+$("webDiscovery").onclick = () => {
+  if (!S.q) return;
+  const profile = creativeProfile(S.q.term);
+  const phrases = profile?.terms === VISUALIZATION_TERMS ? '"3D Visualisierung" OR "Architekturvisualisierung"' : S.q.term;
+  const place = S.q.addr.split(",").slice(1).join(",").trim() || S.q.addr;
+  openUrl("https://www.google.com/search?q=" + encodeURIComponent(`(${phrases}) ${place}`));
+};
 $("tileBtn").onclick = () => { if (map) { setTiles((tileIdx + 1) % TILES.length); toast("Kartenstil: " + TILES[tileIdx].name); } };
 $("viewseg").onclick = e => { const b = e.target.closest("button"); if (!b) return; view = b.dataset.v; store.set("jr_view", view); render(); };
 $("share").onclick = shareList;
