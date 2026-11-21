@@ -1,13 +1,18 @@
-Leipzig creative-business index
+Website-backed business directories for JobRadar
 
-Source: Overture Maps Foundation, Overture Places release 2026-11-18.0.
+Source: Overture Maps Foundation, Overture Places.
 https://docs.overturemaps.org/guides/places/
 https://docs.overturemaps.org/attribution/#places
 
-This extract was geographically filtered to the Leipzig area and limited
-to creative, design, and architecture businesses with websites. Fields
-were selected and coordinates rounded for JobRadar's local search.
+JobRadar selects business names, categories, public websites, addresses,
+and rounded coordinates. The Germany index selects records with a German
+address and excludes closed places and social profile links. The earlier
+Leipzig and Bielefeld extracts cover creative businesses with websites.
 
-Data from BrightQuery, Meta, Microsoft, and Uberall, available under the
-Community Data License Agreement – Permissive, Version 2.0.
+Data from BrightQuery, Meta, Microsoft, PinMeTo, Krick, RenderSEO, DAC,
+Birdeye, Uberall, and OpenTravel Alliance, available under the Community
+Data License Agreement – Permissive, Version 2.0.
 https://cdla.dev/permissive-2-0/
+
+Data from AllThePlaces, available under CC0 1.0.
+https://creativecommons.org/publicdomain/zero/1.0/

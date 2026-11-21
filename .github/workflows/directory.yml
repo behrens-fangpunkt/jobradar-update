@@ -1,0 +1,57 @@
+name: Build Germany business directory
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/directory.yml
+      - ops/build_directory.py
+      - places/NOTICE.txt
+  workflow_dispatch:
+    inputs:
+      overture_release:
+        description: Overture Places release
+        default: 2026-11-18.0
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: jobradar-directory-publication
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: pip install duckdb==1.5.0
+      - name: Build and validate the directory
+        env:
+          OVERTURE_RELEASE: ${{ inputs.overture_release || '2026-11-18.0' }}
+        run: |
+          python ops/build_directory.py --release "$OVERTURE_RELEASE" --out "$RUNNER_TEMP/germany"
+          cp places/NOTICE.txt "$RUNNER_TEMP/germany/NOTICE.txt"
+      - name: Publish the directory and its manifest together
+        env:
+          DATA_BRANCH: directory-data
+        run: |
+          reference="refs/heads/$DATA_BRANCH"
+          current=$(git ls-remote --heads origin "$reference")
+          if [[ -n "$current" ]]; then
+            git fetch origin "$reference"
+            git switch -c "$DATA_BRANCH" FETCH_HEAD
+          else
+            git switch --orphan "$DATA_BRANCH"
+          fi
+          cp -R "$RUNNER_TEMP/germany" .
+          git add germany
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Publish the JobRadar business directory'
+          git push origin "HEAD:$reference"
