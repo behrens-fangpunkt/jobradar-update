@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="27">
+<meta name="jr-version" content="28">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -887,10 +887,15 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .file-slot .icon-btn{width:44px;margin-left:0}
 .file-slot input[type=file]{position:absolute;inset:0;width:100%;height:100%;padding:0;opacity:0;cursor:pointer}
 .file-slot label:focus-within{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
-.file-choices{margin-top:12px;padding:8px 10px;border:1px solid var(--tile-line);border-radius:12px}
-.file-choices summary{cursor:pointer;color:var(--acc);font-weight:600;padding:4px 0}
-.file-choices label{display:flex;align-items:center;gap:8px;min-height:44px;overflow-wrap:anywhere}
-.file-choices input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:var(--acc)}
+#settingsDocuments .application-files{margin-top:0;padding-top:0;border:0}
+.attachment-actions{display:flex;gap:6px 12px;align-items:center;flex-wrap:wrap;margin:12px 0 5px}
+.attachment-actions button{min-height:44px}
+#attachmentPicker{width:min(440px,calc(100% - 24px));max-height:calc(100% - 24px);padding:14px;border:1px solid var(--tile-line);border-radius:18px;background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+#attachmentPicker::backdrop{background:rgba(23,22,43,.42)}
+#attachmentPicker h2{font-size:18px;margin:0 0 8px}
+#attachmentPicker .application-choice{padding-inline:5px}
+#attachmentPicker .application-choice:has(input:disabled){color:var(--mute);cursor:default}
+#attachmentPicker .primary{margin-top:12px}
 .mail-account{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:8px 10px;border:1px solid var(--tile-line);border-radius:13px;margin-bottom:8px}
 .mail-account span{flex:1 1 130px;min-width:0;overflow-wrap:anywhere}
 .mail-account .link{color:#9E343B}
@@ -1133,13 +1138,14 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <label class="lbl" for="tBody">Text</label>
     <textarea id="tBody"></textarea>
     <div class="row2"><button class="ghost" id="tReset">Standard</button><button class="primary" id="tSave" style="flex:2">Speichern</button></div>
-    <section class="application-files" aria-labelledby="applicationFilesTitle">
+    <section class="application-files" id="applicationFiles" aria-labelledby="applicationFilesTitle">
       <h3 id="applicationFilesTitle">Bewerbungsunterlagen</h3>
       <p class="hint">Auf diesem Gerät gespeichert. Du wählst die Anhänge vor dem Senden aus. Bis zu 2 MB je Datei.</p>
       <div id="applicationFilesStatus" role="status" class="status"></div>
       <div id="applicationFileSlots" class="file-slots"></div>
     </section>
   </section>
+  <section id="settingsDocuments" class="hidden"></section>
   <section id="settingsCoach" class="coach-panel hidden" aria-label="AI-Coach"></section>
   <section id="settingsApp" class="hidden">
     <div class="upd hidden" id="upd">
@@ -1187,6 +1193,11 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   </div>
   <div id="mailContent"></div>
 </section>
+<dialog id="attachmentPicker" aria-labelledby="attachmentPickerTitle">
+  <h2 id="attachmentPickerTitle">Bewerbungsunterlagen</h2>
+  <div id="attachmentOptions"></div>
+  <form method="dialog"><button class="primary" type="submit">Fertig</button></form>
+</dialog>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -3209,7 +3220,7 @@ async function updateApplicationFile(slot, file) {
   const controls = [...$("applicationFileSlots").querySelectorAll("input,button")];
   controls.forEach(control=>{ control.disabled = true; });
   try {
-    const entry = file ? {id:slot.id,name:file.name,bytes:await file.arrayBuffer()} : null;
+    const entry = file ? {id:slot.id,name:file.name,bytes:await file.arrayBuffer(),revision:crypto.getRandomValues(new Uint32Array(4)).join("-")} : null;
     await applicationFilesTransaction("readwrite",files=>file
       ? files.put(entry)
       : files.delete(slot.id));
@@ -3290,10 +3301,11 @@ function renderCoach() {
     ${coachProfile.goal ? '<button class="link" type="button" data-coach="search">Suche starten</button>' : ""}</div>
   </section>
   <section class="coach-block">
-    <h3 class="coach-title">Lebenslauf</h3>
+    <h3 class="coach-title">Bewerbungsunterlagen</h3>
+    <button class="link" type="button" data-coach="documents">Unterlagen öffnen</button>
     ${coachCV ? `<p class="hint">Zur Auswertung wird „${esc(coachCV.name)}“ an OpenAI gesendet.</p>
       <button class="ghost" type="button" data-coach="analyze" ${coachBusy || coachSuggestions?.length ? "disabled" : ""}>${coachBusy ? "Wird ausgewertet …" : "Lebenslauf auswerten"}</button>`
-    : '<button class="link" type="button" data-coach="add-cv">Lebenslauf hinzufügen</button>'}
+    : ""}
     ${coachMessage ? `<p class="hint" role="status">${esc(coachMessage)}</p>` : ""}
     ${coachActivation ? `<code class="assistant-code">${esc(coachActivation)}</code>
       <button class="link" type="button" data-coach="share">Freischaltcode teilen</button>` : ""}
@@ -3323,9 +3335,11 @@ function renderCoachPortrait() {
   const tile = $("coachPortrait");
   if (!tile) return;
   const {sourceURL,previewURL,busy,hasSaved,message,activation} = coachPhoto;
+  const cameraAvailable = !hasNative || Native.nativeVersion() >= 3;
   tile.innerHTML = `<h3 class="coach-title">Bewerbungsfoto</h3>
     <div class="coach-actions">
-      <label class="link portrait-source">Selfie aufnehmen<input type="file" accept="image/*" capture="user" data-coach-photo aria-label="Selfie aufnehmen" ${busy ? "disabled" : ""}></label>
+      ${cameraAvailable ? `<label class="link portrait-source">Selfie aufnehmen<input type="file" accept="image/*" capture="user" data-coach-photo aria-label="Selfie aufnehmen" ${busy ? "disabled" : ""}></label>`
+        : `<button class="link portrait-source" type="button" data-coach="camera-help" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>`}
       <label class="link portrait-source">Foto auswählen<input type="file" accept="image/*" data-coach-photo aria-label="Foto auswählen" ${busy ? "disabled" : ""}></label>
     </div>
     ${sourceURL ? `<div class="portrait-previews">
@@ -3506,9 +3520,10 @@ $("settingsCoach").onclick = event => {
     case "skip": saveCoachAnswer(""); break;
     case "search": searchFromCoach(); break;
     case "analyze": requestCoachCV(); break;
-    case "add-cv":
-      showSettingsPage("settingsTemplate");
-      $("applicationFilesTitle").scrollIntoView({block:"start"});
+    case "documents": showSettingsPage("settingsDocuments"); break;
+    case "camera-help":
+      coachPhoto.message = "Fotografiere dich in der Kamera-App und lade das Selfie über „Foto auswählen“ hoch. Für die Kamera in JobRadar brauchst du eine neue App-Version.";
+      renderCoachPortrait();
       break;
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
@@ -3569,7 +3584,7 @@ function mailError(error) {
   const messages = {mail_network:"Keine Verbindung. Versuch es gleich noch einmal.",mail_reconnect:"Verbinde deine E-Mail-Adresse erneut.",
     mail_disconnected:"Verbinde zuerst deine E-Mail-Adresse.",invalid_confirmation:"Der Code ist falsch oder abgelaufen. Du kannst die Anmeldung erneut öffnen.",
     invalid_attachment:"Wähle eine unterstützte Datei bis 2 MB.",invalid_draft:"Überprüfe Empfänger, Betreff und Text.",
-    invalid_attachment_count:"Wähle höchstens sechs Anhänge.",attachment_total_too_large:"Die Anhänge dürfen zusammen höchstens 8 MB groß sein.",
+    invalid_attachment_count:"Wähle höchstens sieben Anhänge.",attachment_total_too_large:"Die Anhänge dürfen zusammen höchstens 8 MB groß sein.",
     draft_storage:"Der Entwurf konnte nicht gespeichert werden.",
     recipient_changed:"Die Antwortadresse hat sich geändert. Öffne die Unterhaltung erneut.",send_pending:"Der Versand wird noch geprüft.",
     try_again_later:"Versuch es in einer Minute erneut.",
@@ -3589,6 +3604,7 @@ function openMail(view = "inbox", draft = null) {
 function closeMail(restoreFocus = true) {
   const trigger = mailView?.trigger;
   if (mailView?.savedDraftId && mailView.view === "compose") recipientAndAttachment(mailView);
+  if ($("attachmentPicker").open) $("attachmentPicker").close();
   clearTimeout(mailView?.pendingTimer);
   clearTimeout(mailView?.draftTimer);
   mailView = null;
@@ -3761,7 +3777,11 @@ async function refreshMail(state) {
   try {
     const info = await mailAPI("status");
     Object.assign(state,info);
-    if (files) state.applicationFiles = await files;
+    if (files) {
+      state.applicationFiles = await files;
+      const saved = preparedDrafts.get(state.savedDraftId)?.attachments || {};
+      state.selectedFiles ??= (state.applicationFiles || []).filter(file=>saved[file.id] === (file.revision ?? null)).map(file=>file.id);
+    }
     if (mailView !== state || !state.account || state.view !== "inbox") return;
     state.threads = await loadMailThreads();
     if (mailView !== state || state.view !== "inbox") return;
@@ -3803,10 +3823,6 @@ function recipientAndAttachment(state) {
   if (state.view === "compose" && $("mailTo")) {
     Object.assign(state.draft,{recipient:$("mailTo").value.trim(),subject:$("mailSubject").value.trim(),body:$("mailBody").value});
     if (state.savedDraftId) savePreparedComposition(state);
-    if ($("composeFiles")) {
-      state.filesExpanded = $("composeFiles").open;
-      state.selectedFiles = [...$("composeFiles").querySelectorAll("input:checked")].map(input=>input.value);
-    }
   } else if (state.view === "thread" && $("mailBody")) state.reply = $("mailBody").value;
   const file = $("mailAttachment")?.files?.[0];
   if (file) state.attachment = file;
@@ -3814,18 +3830,32 @@ function recipientAndAttachment(state) {
 
 function savePreparedComposition(state) {
   const {recipient,subject,body} = state.draft;
-  return updatePreparedDraft(state.savedDraftId,{recipient,subject,body,requestId:state.requestId || null});
+  const changes = {recipient,subject,body,requestId:state.requestId || null};
+  if (state.applicationFiles) {
+    const attachments = Object.fromEntries(selectedApplicationFiles(state).map(file=>[file.id,file.revision ?? null]));
+    if (JSON.stringify(attachments) !== JSON.stringify(preparedDrafts.get(state.savedDraftId)?.attachments || {})) changes.attachments = attachments;
+  }
+  return updatePreparedDraft(state.savedDraftId,changes);
 }
 
-function applicationFileChoices(state) {
-  const files = state.applicationFiles;
-  if (files === null) return '<p class="hint">Gespeicherte Unterlagen konnten nicht geladen werden.</p>';
-  if (!files?.length) return "";
-  const selected = state.selectedFiles || [];
-  return `<details class="file-choices" id="composeFiles" ${state.filesExpanded ? "open" : ""}>
-    <summary>Gespeicherte Unterlagen <span id="composeFilesCount">${selected.length ? `(${selected.length})` : ""}</span></summary>
-    ${files.map(file=>`<label><input type="checkbox" value="${file.id}" ${selected.includes(file.id) ? "checked" : ""}>
-      <span>${file.label} <span class="hint">${esc(file.name)}</span></span></label>`).join("")}</details>`;
+function selectedApplicationFiles(state) {
+  return (state.applicationFiles || []).filter(file=>state.selectedFiles?.includes(file.id));
+}
+
+function attachmentButtonLabel(state) {
+  const count = selectedApplicationFiles(state).length;
+  return `Dateien auswählen${count ? ` (${count})` : ""}`;
+}
+
+function openAttachmentPicker(state) {
+  if (state.applicationFiles === null) return toast("Gespeicherte Unterlagen konnten nicht geladen werden.");
+  const saved = new Map((state.applicationFiles || []).map(file=>[file.id,file]));
+  $("attachmentOptions").innerHTML = applicationFileSlots.map(slot=>{
+    const file = saved.get(slot.id);
+    return `<label class="application-choice"><input type="checkbox" value="${slot.id}" ${!file ? "disabled" : state.selectedFiles?.includes(slot.id) ? "checked" : ""}>
+      <span><strong>${slot.label}</strong><small>${file ? esc(file.name) : "Leer"}</small></span></label>`;
+  }).join("");
+  $("attachmentPicker").showModal();
 }
 
 function mailTimeline(thread) {
@@ -3939,9 +3969,11 @@ function renderMail() {
       <form id="composeMail"><label class="lbl" for="mailTo">Empfänger</label><input id="mailTo" type="email" required maxlength="254">
       <label class="lbl" for="mailSubject">Betreff</label><input id="mailSubject" maxlength="150" required>
       <label class="lbl" for="mailBody">Nachricht</label><textarea id="mailBody" maxlength="16000" required></textarea>
-      ${state.loading ? '<p class="mail-status" role="status">E-Mail-Verbindung wird geladen …</p>' : state.account ? `${applicationFileChoices(state)}
-        <label class="lbl" for="mailAttachment">Weitere Datei anhängen</label><input type="file" id="mailAttachment" accept="${allAttachmentTypes.join(",")}">
-        ${state.attachment ? `<span class="hint">${esc(state.attachment.name)}</span> <button type="button" class="link" data-mail="remove-file">Entfernen</button>` : ""}
+      ${state.loading ? '<p class="mail-status" role="status">E-Mail-Verbindung wird geladen …</p>' : state.account ? `<div class="attachment-actions">
+        <button class="ghost" type="button" id="chooseAttachments" data-mail="choose-attachments">${attachmentButtonLabel(state)}</button>
+        <label class="link portrait-source">Weitere Datei hochladen<input type="file" id="mailAttachment" aria-label="Weitere Datei hochladen" accept="${allAttachmentTypes.join(",")}"></label></div>
+        <p class="hint" id="selectedAttachments" role="status">${esc(selectedApplicationFiles(state).map(file=>file.name).join(" · "))}</p>
+        ${state.attachment ? `<p class="hint">${esc(state.attachment.name)} <button type="button" class="link" data-mail="remove-file">Entfernen</button></p>` : ""}
         <p class="hint">Von ${esc(state.account.address)}</p><button type="submit" class="primary" ${state.savedDraftId && !saved?.reviewed ? "disabled" : ""}>Senden</button>`
       : `${state.applicationFiles?.length ? '<p class="hint">Verbinde dein Postfach, um gespeicherte Unterlagen anzuhängen.</p>' : ""}
         <div class="mail-actions">${providerButtons(state)}<button class="link" type="button" data-mail="external">In Mail öffnen</button></div>`}
@@ -4039,7 +4071,7 @@ function encodeMailFile({name,bytes}, urlSafe) {
 
 function mailAttachmentFields(files) {
   if (!files.length) return {};
-  if (files.length > 6) throw Error("invalid_attachment_count");
+  if (files.length > 7) throw Error("invalid_attachment_count");
   if (files.reduce((size,file)=>size + file.bytes.byteLength,0) > maxMailAttachmentTotal) throw Error("attachment_total_too_large");
   if (files.length === 1) {
     const {data,name,type} = encodeMailFile(files[0],false);
@@ -4065,7 +4097,7 @@ async function submitMail(state, reply) {
     if (state.savedDraftId && !reply && !savePreparedComposition(state)) throw Error("draft_storage");
     const fields = reply ? {thread:state.threadId,recipient:state.thread.replyTo,subject:state.thread.subject,body:state.reply}
       : {business:state.draft.company.id,company:state.draft.company.name,recipient:state.draft.recipient,subject:state.draft.subject,body:state.draft.body};
-    const files = reply ? [] : (state.applicationFiles || []).filter(file=>state.selectedFiles?.includes(file.id));
+    const files = reply ? [] : selectedApplicationFiles(state);
     if (state.attachment) {
       const file = state.attachment;
       if (file.size > maxMailFileSize) throw Error("invalid_attachment");
@@ -4145,9 +4177,18 @@ $("mailContent").oninput = event => {
   },250);
 };
 $("mailContent").onchange = event => {
-  if (!event.target.matches("#composeFiles input")) return;
-  const count = $("composeFiles").querySelectorAll("input:checked").length;
-  $("composeFilesCount").textContent = count ? `(${count})` : "";
+  if (event.target.id !== "mailAttachment" || mailView?.view !== "compose" || !event.target.files?.length) return;
+  recipientAndAttachment(mailView);
+  renderMail();
+  $("mailAttachment")?.focus({preventScroll:true});
+};
+$("attachmentOptions").onchange = event => {
+  const state = mailView;
+  if (state?.view !== "compose" || event.target.type !== "checkbox") return;
+  state.selectedFiles = [...$("attachmentOptions").querySelectorAll("input:checked")].map(input=>input.value);
+  if (state.savedDraftId) savePreparedComposition(state);
+  $("chooseAttachments").textContent = attachmentButtonLabel(state);
+  $("selectedAttachments").textContent = selectedApplicationFiles(state).map(file=>file.name).join(" · ");
 };
 $("mailContent").onclick = async event => {
   const button = event.target.closest("button[data-mail]");
@@ -4192,6 +4233,9 @@ $("mailContent").onclick = async event => {
     recipientAndAttachment(state);
     state.attachment = null;
     renderMail();
+  } else if (action === "choose-attachments" && state.view === "compose") {
+    recipientAndAttachment(state);
+    openAttachmentPicker(state);
   } else if (action === "disconnect" && state.view === "settings" && state.account && !state.loading) {
     state.view = "disconnect";
     state.error = "";
@@ -4248,6 +4292,7 @@ $("mailContent").onsubmit = async event => {
 const settingsPages = {
   settingsHome:"Einstellungen",
   settingsTemplate:"Bewerbungsvorlage",
+  settingsDocuments:"Bewerbungsunterlagen",
   settingsCoach:"AI-Coach",
   settingsApp:"App-Informationen"
 };
@@ -4257,11 +4302,15 @@ function showSettingsPage(page) {
   for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
   $("settingsTitle").textContent = settingsPages[page];
   $("settingsBack").classList.toggle("hidden",page === settingsEntry);
-  $("settingsBack").setAttribute("aria-label",settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
+  $("settingsBack").setAttribute("aria-label",page === "settingsDocuments" || settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
   if (page === "settingsTemplate") {
     $("tName").value = tpl.name;
     $("tSubj").value = tpl.subj;
     $("tBody").value = tpl.body;
+  }
+  if (page === "settingsTemplate" || page === "settingsDocuments") {
+    $(page).append($("applicationFiles"));
+    $("applicationFilesTitle").hidden = page === "settingsDocuments";
     renderApplicationFileSlots();
   }
   if (page === "settingsCoach") {
@@ -4298,7 +4347,8 @@ function closeSheet(restoreFocus = true){
   if (restoreFocus) (settingsTrigger?.isConnected ? settingsTrigger : $("gear")).focus({preventScroll:true});
 }
 function backInSettings() {
-  if (coachResumeAssistant && !$("settingsCoach").classList.contains("hidden")) closeSheet();
+  if (!$("settingsDocuments").classList.contains("hidden")) showSettingsPage("settingsCoach");
+  else if (coachResumeAssistant && !$("settingsCoach").classList.contains("hidden")) closeSheet();
   else if (coachResumeAssistant) showSettingsPage("settingsCoach");
   else if ($(settingsEntry).classList.contains("hidden")) showSettingsPage(settingsEntry);
   else closeSheet();
