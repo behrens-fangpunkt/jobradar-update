@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="28">
+<meta name="jr-version" content="29">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -876,6 +876,10 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .portrait-previews figure{min-width:0;margin:0}
 .portrait-previews img{display:block;width:100%;max-height:195px;aspect-ratio:2/3;object-fit:contain;background:var(--card);border-radius:10px;border:1px solid var(--tile-line)}
 .portrait-previews figcaption{color:var(--mute);font-size:12px;margin-top:3px}
+.portrait-angles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:8px 0}
+.portrait-angle{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;min-height:44px;padding:6px;border:1px solid var(--tile-line);border-radius:10px;background:var(--card);font-size:13px;font-weight:600}
+.portrait-angle[aria-pressed="true"]{border-color:var(--acc);color:var(--acc)}
+.portrait-angle img{width:100%;height:70px;object-fit:cover;border-radius:5px}
 .application-files{margin-top:22px}
 .application-files h3{margin:0 0 4px;font-size:16px}
 .file-slots{display:grid;gap:7px;margin-top:10px}
@@ -926,6 +930,33 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   .mail-label{display:none}
 }
 .mail-head{position:sticky;top:-10px;background:var(--card);z-index:1;padding:5px 0}
+html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
+#mailSheet{top:auto;width:100%;border:0;color:var(--ink);overscroll-behavior:contain}
+#mailSheet::backdrop{background:rgba(23,22,43,.4);touch-action:none}
+#mailSheet.mail-compose{display:flex;flex-direction:column;top:var(--mail-top,0px);bottom:auto;height:var(--mail-height,100dvh);max-height:none;max-width:none;border-radius:0;overflow:hidden;padding:6px 16px 10px}
+.mail-compose::backdrop{background:var(--card)}
+.mail-compose .grab{display:none}
+.mail-compose .mail-head,.mail-compose #mailContent{width:min(100%,640px);margin-inline:auto}
+.mail-compose .mail-head{position:static;flex:none;margin-bottom:3px}
+.mail-compose #mailContent{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
+.mail-compose #composeMail{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:8px;flex:1;min-height:0}
+.mail-compose .lbl{margin:5px 0 3px}
+.mail-compose input,.mail-compose textarea{padding:8px 10px;font-size:16px}
+.sheet textarea.application-subject{min-height:0;resize:none;overflow:hidden;overflow-wrap:anywhere;line-height:1.35}
+.mail-body-field{display:flex;flex-direction:column;min-height:0}
+.mail-compose #mailBody{flex:1;min-height:0;resize:none;overscroll-behavior:contain}
+.mail-compose .attachment-actions{margin:0 0 3px;gap:4px 8px}
+.mail-compose .attachment-actions .ghost{flex:0 1 auto;padding:8px 10px}
+.mail-compose .attachment-actions .portrait-source{font-size:13px}
+.mail-compose .mail-compose-actions .primary{padding:10px;margin-top:3px;min-height:44px}
+.mail-compose .mail-compose-actions p.hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0 0 2px}
+.mail-compose .mail-compose-actions p.hint:empty{display:none}
+.mail-compose .mail-compose-actions .mail-actions{margin:0}
+.mail-compose.mail-keyboard .mail-compose-actions{display:none}
+@media (orientation:landscape) and (max-height:460px){
+  .mail-compose #composeMail{grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:minmax(0,1fr) auto;column-gap:14px}
+  .mail-compose-actions{grid-column:1/-1}
+}
 #mailSheet.mail-inbox{display:flex;flex-direction:column;height:min(680px,90vh);overflow:hidden}
 .mail-inbox .grab,.mail-inbox .mail-head{flex:none}
 .mail-inbox #mailContent{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding-inline:2px}
@@ -1177,8 +1208,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <p class="hint" id="assistantCompany"></p>
   <div id="assistantContent"></div>
 </section>
-<div class="backdrop" id="mailBackdrop"></div>
-<section class="sheet" id="mailSheet" role="dialog" aria-modal="true" aria-labelledby="mailTitle">
+<dialog class="sheet" id="mailSheet" aria-labelledby="mailTitle">
   <div class="grab"></div>
   <div class="sheet-head mail-head">
     <button class="icon-btn hidden" id="mailBack" type="button" aria-label="Zurück"><svg aria-hidden="true"><use href="#i-back"/></svg></button>
@@ -1192,7 +1222,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <button type="button" id="mailTabOpen" data-tab="open" role="tab" aria-controls="mailContent">Offen <span class="mail-tab-count" aria-hidden="true" hidden></span></button>
   </div>
   <div id="mailContent"></div>
-</section>
+</dialog>
 <dialog id="attachmentPicker" aria-labelledby="attachmentPickerTitle">
   <h2 id="attachmentPickerTitle">Bewerbungsunterlagen</h2>
   <div id="attachmentOptions"></div>
@@ -2151,6 +2181,11 @@ function literalMailLinks(doc) {
   return mails;
 }
 
+function businessDescription(doc) {
+  const description = doc.querySelector('meta[name="description" i]')?.content || doc.querySelector('meta[property="og:description" i]')?.content || "";
+  return description.replace(/\s+/g," ").trim().slice(0,320);
+}
+
 function extract(html){
   const doc = new DOMParser().parseFromString(html, "text/html");
   let mails = literalMailLinks(doc);
@@ -2177,7 +2212,7 @@ function extract(html){
   const low = text.toLowerCase();
   const hints = HINT_KW.filter(h => low.includes(h.toLowerCase()));
   const orgName = doc.querySelector('meta[property="og:site_name"]')?.content || doc.title;
-  return {links, mails, phones: cleanPhones, hints, people: extractPeople(doc.body), orgName};
+  return {links, mails, phones: cleanPhones, hints, people: extractPeople(doc.body), orgName, websiteDescription:businessDescription(doc)};
 }
 function sameBusinessSite(host, site) {
   const a = host.toLowerCase().replace(/^www\./, "");
@@ -2195,6 +2230,7 @@ async function crawl(site){
   const final = r.url || url;
   const home = extract(r.text);
   res.orgName = home.orgName.trim();
+  res.websiteDescription = sameBusinessSite(host,new URL(final).hostname) ? home.websiteDescription : "";
   res.contactVersion = 2;
   let mails = home.mails, phones = home.phones, hints = home.hints, jobMails = [];
   const homeURL = new URL(final);
@@ -2800,7 +2836,7 @@ function prepareApplicationBatch(batch) {
     const industry = applicationIndustry(x);
     const answers = savedApplicationAnswers(industry) || {role:"offen",experience:"skip",time:"skip",strength:"skip"};
     const content = templateDraft(x,answers);
-    const company = {id:x.id,name:x.name,kind:x.kind};
+    const company = {id:x.id,name:x.name,kind:x.kind,address:x.address,website:x.website,websiteDescription:x.c?.websiteDescription};
     const greeting = applicationGreeting(x);
     next.set(x.id,{company,recipient:emailsOf(x)[0],industry,answers,subject:content.subject,
       greeting,signature:tpl.name,body:formatApplicationDraft(content.body,greeting,tpl.name),
@@ -3004,16 +3040,56 @@ function templateDraft(x, answers) {
   const facts = [experience, strength, availability].filter(Boolean).join(" ");
   return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
 }
-function formatApplicationDraft(body,greeting,name) {
-  return [greeting + ",",body,["Mit freundlichen Grüßen",name].filter(Boolean).join("\n")].join("\n\n");
+const genericApplicationGreeting = /^Sehr geehrte Damen und Herren\s*[,!.]?$/i;
+const applicationSalutation = /^(?:(?:Guten (?:Tag|Morgen|Abend)|Hallo|Moin|Hi|Liebes Team|Sehr geehrte(?:r|s)? (?:Frau|Herr|Team)\b)[^,!?]*[,!])$/i;
+
+function cleanPreparedGreeting(draft) {
+  const lines = draft.body.split(/\r?\n/);
+  const first = lines.findIndex(line=>line.trim());
+  if (first < 0) return draft.body;
+  const next = lines.findIndex((line,index)=>index > first && line.trim());
+  const greeting = draft.greeting || applicationGreeting(draft.company);
+  if (genericApplicationGreeting.test(lines[first].trim())) {
+    if (next >= 0 && applicationSalutation.test(lines[next].trim())) lines.splice(first,next - first);
+    else lines[first] = `${greeting},`;
+  } else if ((lines[first].trim() === `${greeting},` || applicationSalutation.test(lines[first].trim())) &&
+      next >= 0 && genericApplicationGreeting.test(lines[next].trim())) {
+    lines.splice(first + 1,next - first);
+  } else return draft.body;
+  return lines.join("\n");
 }
+
+function formatApplicationDraft(body,greeting,name) {
+  const lines = body.trim().split(/\r?\n/);
+  while (lines.length && (!lines[0].trim() || genericApplicationGreeting.test(lines[0].trim()) || applicationSalutation.test(lines[0].trim()))) lines.shift();
+  return [greeting + ",",lines.join("\n"),["Mit freundlichen Grüßen",name].filter(Boolean).join("\n")].join("\n\n");
+}
+
+async function applicationWebsiteDescription(x) {
+  const known = x.c?.websiteDescription ?? x.websiteDescription;
+  if (known !== undefined || !x.website) return known || "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(x.website) ? x.website : `https://${x.website}`);
+    if (SOCIAL.test(url.hostname)) return "";
+    const page = await request(url.href,{ua:BROWSER_UA,timeout:3500,max:260000});
+    if (page.ok && sameBusinessSite(url.hostname,new URL(page.url || url.href).hostname)) {
+      return businessDescription(new DOMParser().parseFromString(page.text,"text/html"));
+    }
+  } catch (_) { /* Drafting still works without website details. */ }
+  return "";
+}
+
 async function aiDraft(config, x, industry, answers, retryRateLimit = false) {
   const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
+  const location = x.address?.replace(/\s+/g," ").trim().slice(0,130);
+  const description = await applicationWebsiteDescription(x);
+  if (location) input.set("business_location",location);
+  if (description) input.set("business_description",description);
   const target = [coachProfile.role,coachProfile.goal].filter(Boolean).join(" · ").slice(0,160);
   if (target) input.set("goal",target);
   if (coachProfile.availability) input.set("availability",coachProfile.availability.slice(0,160));
   if (coachProfile.tone) input.set("tone",coachProfile.tone.slice(0,160));
-  const terms = new Set(searchText(x.name + " " + industry).split(/\W+/).filter(word=>word.length > 3));
+  const terms = new Set(searchText([x.name,industry,description].join(" ")).split(/\W+/).filter(word=>word.length > 3));
   const facts = coachProfile.facts.map(fact=>({claim:fact.claim,score:searchText(fact.claim).split(/\W+/).filter(word=>terms.has(word)).length}));
   facts.sort((a,b)=>b.score-a.score);
   for (const {claim} of facts.slice(0,4)) input.append("profile_fact",claim);
@@ -3053,12 +3129,13 @@ function renderAssistant() {
   } else if (draft) {
     const mail = emailsOf(x)[0];
     box.innerHTML = `<p class="hint">${esc(draft.source)}</p>
-      <label class="lbl" for="draftSubject">Betreff</label><input id="draftSubject" maxlength="150">
+      <label class="lbl" for="draftSubject">Betreff</label><textarea class="application-subject" id="draftSubject" rows="1" maxlength="150"></textarea>
       <label class="lbl" for="draftBody">E-Mail</label><textarea id="draftBody"></textarea>
       <p class="hint">${mail ? `An ${esc(mail)}` : "Keine E-Mail-Adresse gefunden. Du kannst den Entwurf kopieren."}</p>
       <button class="primary" type="button" data-ass="mail" ${mail ? "" : "disabled"}>Weiter zur Bewerbung</button>
       <div class="assistant-nav"><button class="link" type="button" data-ass="answers">Profil ändern</button><button class="link" type="button" data-ass="copy">Kopieren</button></div>`;
     $("draftSubject").value = draft.subject;
+    resizeApplicationSubject($("draftSubject"));
     $("draftBody").value = draft.body;
   } else if (step === APPLICATION_QUESTIONS.length) {
     box.innerHTML = `<p class="assistant-step">Dein Entwurf</p>
@@ -3266,7 +3343,9 @@ const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",fact
 let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 0;
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
-const coachPhoto = {source:null,sourceURL:"",preview:null,previewURL:"",busy:false,hasSaved:false,message:"",activation:""};
+const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
+const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,hasSaved:false,message:"",activation:""};
+let portraitCaptureId = 0;
 
 function renderCoach() {
   const box = $("settingsCoach");
@@ -3334,35 +3413,65 @@ async function showCoach() {
 function renderCoachPortrait() {
   const tile = $("coachPortrait");
   if (!tile) return;
-  const {sourceURL,previewURL,busy,hasSaved,message,activation} = coachPhoto;
-  const cameraAvailable = !hasNative || Native.nativeVersion() >= 3;
+  const {angle,references,previewURL,busy,hasSaved,message,activation} = coachPhoto;
+  const ready = Object.keys(portraitAngles).every(key=>references[key]);
   tile.innerHTML = `<h3 class="coach-title">Bewerbungsfoto</h3>
+    <p class="hint">Drei Fotos derselben Person. Für links und rechts drehst du den Kopf leicht zur Seite.</p>
+    <div class="portrait-angles" aria-label="Aufnahmewinkel">${Object.entries(portraitAngles).map(([key,label])=>`<button type="button" class="portrait-angle" data-coach="portrait-angle" data-angle="${key}" aria-pressed="${key === angle}" ${busy ? "disabled" : ""}>
+      ${references[key] ? `<img src="${references[key].url}" alt="">` : ""}${label}${references[key] ? " ✓" : ""}</button>`).join("")}</div>
     <div class="coach-actions">
-      ${cameraAvailable ? `<label class="link portrait-source">Selfie aufnehmen<input type="file" accept="image/*" capture="user" data-coach-photo aria-label="Selfie aufnehmen" ${busy ? "disabled" : ""}></label>`
-        : `<button class="link portrait-source" type="button" data-coach="camera-help" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>`}
-      <label class="link portrait-source">Foto auswählen<input type="file" accept="image/*" data-coach-photo aria-label="Foto auswählen" ${busy ? "disabled" : ""}></label>
+      <button class="link portrait-source" type="button" data-coach="capture-portrait" aria-label="Selfie aufnehmen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>
+      <input class="hidden" id="portraitCapture" type="file" accept="image/*" capture="user" data-coach-photo="${angle}">
+      <label class="link portrait-source">Foto auswählen<input type="file" accept="image/*" data-coach-photo="${angle}" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}></label>
     </div>
-    ${sourceURL ? `<div class="portrait-previews">
-      <figure><img src="${sourceURL}" alt="Dein ausgewähltes Foto"><figcaption>Original</figcaption></figure>
-      ${previewURL ? `<figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure>` : ""}
-    </div>` : ""}
+    ${previewURL ? `<div class="portrait-previews"><figure><img src="${references.front.url}" alt="Dein Foto von vorne"><figcaption>Frontal</figcaption></figure>
+      <figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure></div>` : ""}
     ${busy ? '<p class="hint" role="status">Foto wird verarbeitet …</p>'
       : previewURL ? `<button class="primary" type="button" data-coach="save-portrait">${hasSaved ? "Vorhandenes Foto ersetzen" : "Als Bewerbungsfoto übernehmen"}</button>`
-      : sourceURL ? '<p class="hint">Dieses Foto wird zur Bearbeitung an OpenAI gesendet.</p><button class="primary" type="button" data-coach="make-portrait">Bewerbungsfoto erstellen</button>' : ""}
-    ${sourceURL && !busy ? '<button class="link" type="button" data-coach="discard-portrait">Verwerfen</button>' : ""}
+      : ready ? '<p class="hint">Alle drei Fotos werden zur Bearbeitung an OpenAI gesendet.</p><button class="primary" type="button" data-coach="make-portrait">Bewerbungsfoto erstellen</button>' : ""}
+    ${Object.keys(references).length && !busy ? '<button class="link" type="button" data-coach="discard-portrait">Verwerfen</button>' : ""}
     ${message ? `<p class="hint" role="status">${esc(message)}</p>` : ""}
     ${activation ? `<code class="assistant-code">${esc(activation)}</code><button type="button" class="link" data-coach="share-portrait">Freischaltcode teilen</button>` : ""}`;
 }
 
 function clearPortrait() {
-  for (const url of [coachPhoto.sourceURL,coachPhoto.previewURL]) if (url) URL.revokeObjectURL(url);
-  Object.assign(coachPhoto,{source:null,sourceURL:"",preview:null,previewURL:"",message:"",activation:""});
+  for (const ref of Object.values(coachPhoto.references)) URL.revokeObjectURL(ref.url);
+  if (coachPhoto.previewURL) URL.revokeObjectURL(coachPhoto.previewURL);
+  Object.assign(coachPhoto,{angle:"left",references:{},preview:null,previewURL:"",message:"",activation:""});
 }
 
-async function preparePortrait(file) {
-  if (!file || coachPhoto.busy) return;
-  clearPortrait();
+function capturePortrait() {
+  if (coachPhoto.busy) return;
+  if (hasNative && typeof Native.takeSelfie === "function") {
+    coachPhoto.busy = true;
+    coachPhoto.message = "";
+    renderCoachPortrait();
+    Native.takeSelfie(++portraitCaptureId);
+  } else if (!hasNative || (!window.webkit?.messageHandlers?.jr && Native.nativeVersion() >= 3)) {
+    $("portraitCapture")?.click();
+  } else {
+    coachPhoto.message = "Nutze die Kamera-App und füge das Foto über „Foto auswählen“ hinzu. Direktes Aufnehmen funktioniert mit dem neuen App-Build.";
+    renderCoachPortrait();
+  }
+}
+
+window.__jrSelfie = (id,data,error) => {
+  if (id !== portraitCaptureId || !coachPhoto.busy) return;
+  coachPhoto.busy = false;
+  if (data) {
+    const bytes = Uint8Array.from(atob(data),char=>char.charCodeAt(0));
+    preparePortrait(new Blob([bytes],{type:"image/jpeg"}),coachPhoto.angle);
+  } else {
+    coachPhoto.message = error || "";
+    renderCoachPortrait();
+  }
+};
+
+async function preparePortrait(file,angle) {
+  if (!file || !Object.hasOwn(portraitAngles,angle) || coachPhoto.busy) return;
   coachPhoto.busy = true;
+  coachPhoto.message = "";
+  coachPhoto.activation = "";
   renderCoachPortrait();
   const url = URL.createObjectURL(file);
   try {
@@ -3380,8 +3489,14 @@ async function preparePortrait(file) {
     context.drawImage(image,0,0,canvas.width,canvas.height);
     const jpeg = await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.88));
     if (!jpeg || jpeg.size > 1024 * 1024) throw Error("invalid_image");
-    coachPhoto.source = {name:"selfie.jpg",bytes:await jpeg.arrayBuffer()};
-    coachPhoto.sourceURL = URL.createObjectURL(jpeg);
+    const bytes = await jpeg.arrayBuffer();
+    const previous = coachPhoto.references[angle];
+    if (previous) URL.revokeObjectURL(previous.url);
+    if (coachPhoto.previewURL) URL.revokeObjectURL(coachPhoto.previewURL);
+    coachPhoto.preview = null;
+    coachPhoto.previewURL = "";
+    coachPhoto.references[angle] = {name:`${angle}.jpg`,bytes,url:URL.createObjectURL(jpeg)};
+    coachPhoto.angle = Object.keys(portraitAngles).find(key=>!coachPhoto.references[key]) || angle;
   } catch (_) {
     coachPhoto.message = "Das Foto konnte nicht geöffnet werden. Nimm ein neues Selfie auf oder wähle ein JPG- oder PNG-Foto.";
   } finally {
@@ -3392,15 +3507,16 @@ async function preparePortrait(file) {
 }
 
 async function requestHeadshot() {
-  if (coachPhoto.busy || !coachPhoto.source || coachPhoto.preview) return;
+  const angles = Object.keys(portraitAngles);
+  if (coachPhoto.busy || !angles.every(angle=>coachPhoto.references[angle]) || coachPhoto.preview) return;
   coachPhoto.busy = true;
   coachPhoto.message = "";
   coachPhoto.activation = "";
   renderCoachPortrait();
   try {
     const phone = await assistantPhone();
-    const {data} = encodeMailFile(coachPhoto.source,true);
-    const params = new URLSearchParams({...phone.credentials,image:data});
+    const params = new URLSearchParams(phone.credentials);
+    for (const angle of angles) params.set(angle,encodeMailFile(coachPhoto.references[angle],true).data);
     const result = await request(ASSISTANT_SERVER + "/coach/headshot",{method:"POST",body:params.toString(),timeout:112000,max:2800000});
     const response = JSON.parse(result.text || "{}");
     if (result.status === 401) {
@@ -3410,6 +3526,8 @@ async function requestHeadshot() {
       coachPhoto.message = "Die Bildfunktion braucht eine Freigabe im OpenAI-Projekt.";
     } else if (result.status === 429) {
       coachPhoto.message = "Versuch es in einer Minute erneut.";
+    } else if (response.error === "duplicate_angle") {
+      coachPhoto.message = "Wähle für jeden Blickwinkel ein anderes Foto.";
     } else {
       if (!result.ok || typeof response.image !== "string" || response.image.length > Math.ceil(maxMailFileSize / 3) * 4)
         throw Error("headshot_unavailable");
@@ -3521,10 +3639,8 @@ $("settingsCoach").onclick = event => {
     case "search": searchFromCoach(); break;
     case "analyze": requestCoachCV(); break;
     case "documents": showSettingsPage("settingsDocuments"); break;
-    case "camera-help":
-      coachPhoto.message = "Fotografiere dich in der Kamera-App und lade das Selfie über „Foto auswählen“ hoch. Für die Kamera in JobRadar brauchst du eine neue App-Version.";
-      renderCoachPortrait();
-      break;
+    case "portrait-angle": coachPhoto.angle = button.dataset.angle; renderCoachPortrait(); break;
+    case "capture-portrait": capturePortrait(); break;
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
     case "share": shareActivationCode(coachActivation); break;
@@ -3536,7 +3652,7 @@ $("settingsCoach").onclick = event => {
 };
 
 $("settingsCoach").onchange = event => {
-  if (event.target.matches("[data-coach-photo]")) preparePortrait(event.target.files?.[0]);
+  if (event.target.matches("[data-coach-photo]")) preparePortrait(event.target.files?.[0],event.target.dataset.coachPhoto);
 };
 
 $("settingsCoach").onsubmit = event => {
@@ -3596,8 +3712,10 @@ function openMail(view = "inbox", draft = null) {
   const trigger = view === "settings" ? $("gear") : document.activeElement;
   if (assistant) closeAssistant();
   mailView = {view,draft,trigger,tab:"review",threads:[],providers:[],account:null,loading:false,error:""};
-  $("mailBackdrop").classList.add("open");
-  $("mailSheet").classList.add("open");
+  const sheet = $("mailSheet");
+  sheet.classList.add("open");
+  document.documentElement.classList.add("mail-open");
+  if (!sheet.open) sheet.showModal();
   return mailView;
 }
 
@@ -3608,8 +3726,9 @@ function closeMail(restoreFocus = true) {
   clearTimeout(mailView?.pendingTimer);
   clearTimeout(mailView?.draftTimer);
   mailView = null;
-  $("mailBackdrop").classList.remove("open");
   $("mailSheet").classList.remove("open");
+  $("mailSheet").close();
+  document.documentElement.classList.remove("mail-open");
   document.activeElement?.blur();
   if (restoreFocus) (trigger?.isConnected ? trigger : $("mailInbox")).focus({preventScroll:true});
 }
@@ -3634,12 +3753,15 @@ function openMailbox(tab, previous) {
 async function reviewPreparedDraft(id) {
   const draft = preparedDrafts.get(id);
   if (!draft) return;
-  if (!updatePreparedDraft(id,{reviewed:true,queued:false})) return toast("Der Entwurf konnte nicht geöffnet werden.");
-  const state = openMail("compose",{company:draft.company,recipient:draft.recipient,subject:draft.subject,body:draft.body});
+  const body = cleanPreparedGreeting(draft);
+  if (!updatePreparedDraft(id,{reviewed:true,queued:false,body})) return toast("Der Entwurf konnte nicht geöffnet werden.");
+  const state = openMail("compose",{company:draft.company,recipient:draft.recipient,subject:draft.subject,body});
   state.savedDraftId = id;
   state.requestId = draft.requestId;
   $("mailSheet").scrollTop = 0;
-  await refreshMail(state);
+  const loaded = refreshMail(state);
+  $("mailTitle").focus({preventScroll:true});
+  await loaded;
 }
 
 function dismissMail() {
@@ -3821,7 +3943,7 @@ function providerButtons(state, label = "verbinden") {
 
 function recipientAndAttachment(state) {
   if (state.view === "compose" && $("mailTo")) {
-    Object.assign(state.draft,{recipient:$("mailTo").value.trim(),subject:$("mailSubject").value.trim(),body:$("mailBody").value});
+    Object.assign(state.draft,{recipient:$("mailTo").value.trim(),subject:$("mailSubject").value.replace(/[\r\n]+/g," ").trim(),body:$("mailBody").value});
     if (state.savedDraftId) savePreparedComposition(state);
   } else if (state.view === "thread" && $("mailBody")) state.reply = $("mailBody").value;
   const file = $("mailAttachment")?.files?.[0];
@@ -3918,17 +4040,37 @@ function renderMailbox(state, alert) {
   content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}${rows}${connection}`;
 }
 
+function resizeApplicationSubject(field) {
+  if (!field) return;
+  const singleLine = field.value.replace(/[\r\n]+/g," ");
+  if (field.value !== singleLine) field.value = singleLine;
+  field.style.height = "auto";
+  field.style.height = `${field.scrollHeight + field.offsetHeight - field.clientHeight}px`;
+}
+
+function positionMailComposer() {
+  if (mailView?.view !== "compose") return;
+  const viewport = window.visualViewport;
+  const sheet = $("mailSheet");
+  const height = viewport?.height || window.innerHeight;
+  sheet.style.setProperty("--mail-height",`${height}px`);
+  sheet.style.setProperty("--mail-top",`${viewport?.offsetTop || 0}px`);
+  const editing = document.activeElement?.matches("#mailTo,#mailSubject,#mailBody");
+  sheet.classList.toggle("mail-keyboard",!!editing && height < 440 && matchMedia("(pointer:coarse)").matches);
+}
+
 function renderMail() {
   const state = mailView;
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
   const inbox = state.view === "inbox", threadOpen = state.view === "thread";
-  const savedReview = state.view === "compose" && state.savedDraftId;
+  const composing = state.view === "compose";
   $("mailSheet").classList.toggle("mail-inbox",inbox);
+  $("mailSheet").classList.toggle("mail-compose",composing);
   $("mailTabs").hidden = !inbox;
   if (inbox) content.setAttribute("role","tabpanel");
   else { content.removeAttribute("role"); content.removeAttribute("aria-labelledby"); }
-  $("mailBack").classList.toggle("hidden",state.view !== "settings" && state.view !== "connect" && !savedReview);
+  $("mailBack").classList.toggle("hidden",state.view !== "settings" && state.view !== "connect");
   $("mailBack").disabled = !!state.connecting || !!state.sending;
   $("mailRefresh").classList.toggle("hidden", !inbox && !threadOpen);
   $("mailRefresh").disabled = state.loading || !!state.threadLoading || !!state.sending || !!state.connecting;
@@ -3966,9 +4108,10 @@ function renderMail() {
     const draft = state.draft;
     const saved = state.savedDraftId ? preparedDrafts.get(state.savedDraftId) : null;
     content.innerHTML = `${alert}<p class="hint">${esc(draft.company.name)}${saved ? ` · ${esc(saved.source)}` : ""}</p>
-      <form id="composeMail"><label class="lbl" for="mailTo">Empfänger</label><input id="mailTo" type="email" required maxlength="254">
-      <label class="lbl" for="mailSubject">Betreff</label><input id="mailSubject" maxlength="150" required>
-      <label class="lbl" for="mailBody">Nachricht</label><textarea id="mailBody" maxlength="16000" required></textarea>
+      <form id="composeMail"><div><label class="lbl" for="mailTo">Empfänger</label><input id="mailTo" type="email" required maxlength="254">
+      <label class="lbl" for="mailSubject">Betreff</label><textarea class="application-subject" id="mailSubject" rows="1" maxlength="150" required></textarea></div>
+      <div class="mail-body-field"><label class="lbl" for="mailBody">Nachricht</label><textarea id="mailBody" maxlength="16000" required></textarea></div>
+      <div class="mail-compose-actions">
       ${state.loading ? '<p class="mail-status" role="status">E-Mail-Verbindung wird geladen …</p>' : state.account ? `<div class="attachment-actions">
         <button class="ghost" type="button" id="chooseAttachments" data-mail="choose-attachments">${attachmentButtonLabel(state)}</button>
         <label class="link portrait-source">Weitere Datei hochladen<input type="file" id="mailAttachment" aria-label="Weitere Datei hochladen" accept="${allAttachmentTypes.join(",")}"></label></div>
@@ -3977,10 +4120,12 @@ function renderMail() {
         <p class="hint">Von ${esc(state.account.address)}</p><button type="submit" class="primary" ${state.savedDraftId && !saved?.reviewed ? "disabled" : ""}>Senden</button>`
       : `${state.applicationFiles?.length ? '<p class="hint">Verbinde dein Postfach, um gespeicherte Unterlagen anzuhängen.</p>' : ""}
         <div class="mail-actions">${providerButtons(state)}<button class="link" type="button" data-mail="external">In Mail öffnen</button></div>`}
-      ${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}</form>`;
+      ${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}</div></form>`;
     $("mailTo").value = draft.recipient;
     $("mailSubject").value = draft.subject;
     $("mailBody").value = draft.body;
+    positionMailComposer();
+    resizeApplicationSubject($("mailSubject"));
     return;
   }
   if (state.view === "thread") {
@@ -4159,7 +4304,13 @@ $("mailTabs").onkeydown = event => {
   event.preventDefault();
   selectMailboxTab(tabs[next]);
 };
-$("mailClose").onclick = $("mailBackdrop").onclick = dismissMail;
+$("mailClose").onclick = dismissMail;
+$("mailSheet").addEventListener("click", event=>{
+  if (event.target !== $("mailSheet")) return;
+  const box = $("mailSheet").getBoundingClientRect();
+  if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dismissMail();
+});
+$("mailSheet").addEventListener("cancel", event=>{ event.preventDefault(); backInMail(); });
 $("mailBack").onclick = backInMail;
 $("mailRefresh").onclick = () => {
   const state = mailView;
@@ -4170,12 +4321,25 @@ $("mailRefresh").onclick = () => {
 $("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); backInMail(); } });
 $("mailContent").oninput = event => {
   const state = mailView;
+  if (event.target.id === "mailSubject") resizeApplicationSubject(event.target);
   if (!state?.savedDraftId || state.view !== "compose" || !["mailTo","mailSubject","mailBody"].includes(event.target.id)) return;
   clearTimeout(state.draftTimer);
   state.draftTimer = setTimeout(()=>{
     if (mailView === state && state.view === "compose") recipientAndAttachment(state);
   },250);
 };
+$("assistantContent").oninput = event => {
+  if (event.target.id === "draftSubject") resizeApplicationSubject(event.target);
+};
+$("mailContent").addEventListener("focusin",positionMailComposer);
+$("mailContent").addEventListener("focusout",()=>requestAnimationFrame(positionMailComposer));
+window.addEventListener("resize",()=>{
+  positionMailComposer();
+  resizeApplicationSubject($("mailSubject"));
+  resizeApplicationSubject($("draftSubject"));
+});
+window.visualViewport?.addEventListener("resize",positionMailComposer);
+window.visualViewport?.addEventListener("scroll",positionMailComposer);
 $("mailContent").onchange = event => {
   if (event.target.id !== "mailAttachment" || mailView?.view !== "compose" || !event.target.files?.length) return;
   recipientAndAttachment(mailView);
