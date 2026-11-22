@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="25">
+<meta name="jr-version" content="26">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -928,6 +928,11 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .mail-row.has-reply{border-inline-start:4px solid #81B9A3}
 .mail-row.new-reply{border-inline-start-color:var(--ok);background:#F3FBF7}
 .mail-row .mail-reply{color:var(--ok);font-weight:600}
+.mail-drafts{margin-bottom:12px}
+.mail-drafts:empty{display:none}
+.mail-row.mail-draft{display:flex;align-items:center;gap:10px;background:#F1F1F5}
+.mail-draft-preview{min-width:0;flex:1}
+.mail-draft .link{min-height:44px;padding:8px 10px;background:var(--card);border-radius:10px}
 .mail-message{background:var(--bg);border-radius:14px;padding:12px;margin:10px 12px 10px 0;overflow-wrap:anywhere}
 .mail-message.outgoing{background:var(--acc-soft);margin:10px 0 10px 12px}
 .mail-message p{white-space:pre-wrap;margin:6px 0 0}
@@ -1159,7 +1164,6 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   </div>
   <p class="hint" id="assistantCompany"></p>
   <div id="assistantContent"></div>
-  <button class="link hidden" id="assistantSkip" type="button">Überspringen</button>
 </section>
 <div class="backdrop" id="mailBackdrop"></div>
 <section class="sheet" id="mailSheet" role="dialog" aria-modal="true" aria-labelledby="mailTitle">
@@ -2277,6 +2281,9 @@ function installUpdate(){
 /* ============================================================ Zustand */
 let S = store.get("jr_last", null) || {q:null, items:[]};
 let filter = "all", contactRun = null, applicationBatch = null;
+const preparedDraftKey = "jr_prepared_mail";
+let preparedDrafts = new Map(store.get(preparedDraftKey,[]).map(draft=>[draft.company.id,draft]));
+let preparingDrafts = false, preparedDraftRetry;
 let applied = store.get("jr_applied", {});
 const applicationThreads = new Map();
 let tpl = Object.assign({}, DEFAULT_TPL, store.get("jr_tpl", {}));
@@ -2342,6 +2349,7 @@ function card(x){
   else if (!x.website && !mails.length && !phones.length) note = `<p class="note">Keine Webseite hinterlegt – über Google suchen.</p>`;
   let a = "";
   if (thread) a += `<button class="act done" data-a="thread" title="Unterhaltung öffnen">Beworben${icon("check")}</button>`;
+  else if (preparedDrafts.has(x.id)) a += `<button class="act" data-a="mail">${icon("mail")}Entwurf</button>`;
   else if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
   if (phones.length) a += `<button class="act${mails.length || thread ? "" : " main"}" data-a="call">${icon("phone")}Anrufen</button>`;
   else if (!mails.length && !thread && needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
@@ -2686,6 +2694,7 @@ function openApplicationMail(mail, subject, body) {
   openUrl("mailto:" + mail + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body));
 }
 async function applyByMail(x) {
+  if (preparedDrafts.has(x.id)) return reviewPreparedDraft(x.id);
   if (applicationsInProgress.has(x)) return;
   applicationsInProgress.add(x);
   try {
@@ -2722,13 +2731,10 @@ async function scanBusiness(x) {
 
 /* ---------- Bewerbungsliste ---------- */
 function canPrepareApplication(x) {
-  return !isApplied(x) && !pendingApplications.has(x.id) && emailsOf(x).length > 0;
+  return !isApplied(x) && !pendingApplications.has(x.id) && !preparedDrafts.has(x.id) && emailsOf(x).length > 0;
 }
 function batchCandidates(batch) {
-  return batch.candidates.filter(x=>!batch.submitted.has(x.id) && canPrepareApplication(x));
-}
-function nextBatchCompany(batch) {
-  return batchCandidates(batch).find(x=>batch.selected.has(x.id));
+  return batch.candidates.filter(canPrepareApplication);
 }
 function setApplicationListOpen(open) {
   $("applicationListBackdrop").classList.toggle("open",open);
@@ -2754,7 +2760,7 @@ function showApplicationList(batch) {
 function openApplicationList() {
   const candidates = orderedResults(visible().filter(canPrepareApplication));
   if (!candidates.length) return;
-  applicationBatch = {search:S,candidates,selected:new Set(),submitted:new Set()};
+  applicationBatch = {search:S,candidates,selected:new Set()};
   showApplicationList(applicationBatch);
   $("applicationListItems").scrollTop = 0;
 }
@@ -2763,12 +2769,97 @@ function closeApplicationList() {
   setApplicationListOpen(false);
   $("applicationListButton").focus({preventScroll:true});
 }
-function startNextApplication(batch) {
+function prepareApplicationBatch(batch) {
   if (!batch || applicationBatch !== batch || S !== batch.search) return;
-  const company = nextBatchCompany(batch);
-  if (!company) return showApplicationList(batch);
-  setApplicationListOpen(false);
-  openAssistant(company,$("applicationListStart"),batch);
+  const selected = batchCandidates(batch).filter(company=>batch.selected.has(company.id));
+  if (!selected.length) return showApplicationList(batch);
+  const next = new Map();
+  for (const x of selected) {
+    const industry = applicationIndustry(x);
+    const answers = savedApplicationAnswers(industry) || {role:"offen",experience:"skip",time:"skip",strength:"skip"};
+    const content = templateDraft(x,answers);
+    const company = {id:x.id,name:x.name,kind:x.kind};
+    const greeting = applicationGreeting(x);
+    next.set(x.id,{company,recipient:emailsOf(x)[0],industry,answers,subject:content.subject,
+      greeting,signature:tpl.name,body:formatApplicationDraft(content.body,greeting,tpl.name),
+      reviewed:false,queued:true,source:"Vorlage"});
+  }
+  for (const [id,draft] of preparedDrafts) next.set(id,draft);
+  if (!commitPreparedDrafts(next)) return toast("Die Entwürfe konnten nicht gespeichert werden.");
+  closeApplicationList();
+  render(new Set(selected));
+  openPreparedInbox();
+  generatePreparedDrafts();
+}
+
+function commitPreparedDrafts(next) {
+  try {
+    localStorage.setItem(preparedDraftKey,JSON.stringify([...next.values()]));
+    preparedDrafts = next;
+    return true;
+  } catch (_) { return false; }
+}
+
+function updatePreparedDraft(id, changes) {
+  const draft = preparedDrafts.get(id);
+  if (!draft) return false;
+  if (Object.entries(changes).every(([key,value])=>draft[key] === value)) return true;
+  const next = new Map(preparedDrafts);
+  next.set(id,{...draft,...changes});
+  return commitPreparedDrafts(next);
+}
+
+function removePreparedDrafts(threads) {
+  const ids = threads.filter(thread=>(thread.sent || thread.pending) && preparedDrafts.has(thread.business_id))
+    .map(thread=>thread.business_id);
+  if (!ids.length) return;
+  const next = new Map(preparedDrafts);
+  for (const id of ids) next.delete(id);
+  if (commitPreparedDrafts(next)) {
+    render(new Set(S.items.filter(x=>ids.includes(x.id))));
+    renderPreparedMailDrafts();
+  }
+}
+
+async function generatePreparedDrafts() {
+  if (preparingDrafts || preparedDraftRetry || document.hidden || ![...preparedDrafts.values()].some(draft=>draft.queued)) return;
+  preparingDrafts = true;
+  try {
+    const config = legacyAssistant?.url && legacyAssistant?.code
+      ? {url:legacyAssistant.url,credentials:{code:legacyAssistant.code}} : await assistantPhone();
+    if (!config.credentials.code) {
+      const access = await request(ASSISTANT_SERVER + "/access",{
+        method:"POST",body:new URLSearchParams(config.credentials).toString(),timeout:5500,max:4096
+      });
+      if (!access.ok) {
+        const next = new Map([...preparedDrafts].map(([id,draft])=>[id,draft.queued ? {...draft,queued:false} : draft]));
+        commitPreparedDrafts(next);
+        renderPreparedMailDrafts();
+        return;
+      }
+    }
+    while (!document.hidden) {
+      const draft = [...preparedDrafts.values()].find(item=>item.queued);
+      if (!draft) return;
+      let generated;
+      try { generated = await aiDraft(config,draft.company,draft.industry,draft.answers,true); }
+      catch (error) {
+        if (error.message === "draft_rate_limit") {
+          preparedDraftRetry = setTimeout(()=>{ preparedDraftRetry = null; generatePreparedDrafts(); },61000);
+          return;
+        }
+      }
+      const id = draft.company.id;
+      if (preparedDrafts.get(id) !== draft) continue;
+      const changes = generated ? {subject:generated.subject,body:formatApplicationDraft(generated.body,draft.greeting,draft.signature),source:"KI-Entwurf"} : {};
+      if (!updatePreparedDraft(id,{...changes,queued:false})) return;
+      renderPreparedMailDrafts();
+    }
+  } catch (_) {
+    // A saved template remains available when the assistant cannot be reached.
+  } finally {
+    preparingDrafts = false;
+  }
 }
 
 /* ---------- Bewerbungsassistent ---------- */
@@ -2854,27 +2945,29 @@ function showAssistantDraftOptions(state) {
   else renderAssistant();
 }
 
-function openAssistant(x, trigger, batch = null) {
+function applicationIndustry(x) {
+  return x.kind && x.kind !== "Website" ? x.kind : specialtyProfile(S.q?.term)?.label || S.q?.term || "";
+}
+function openAssistant(x, trigger) {
+  if (preparedDrafts.has(x.id)) return reviewPreparedDraft(x.id);
   const config = legacyAssistant?.url && legacyAssistant?.code
     ? {url:legacyAssistant.url, credentials:{code:legacyAssistant.code}} : null;
-  const industry = x.kind && x.kind !== "Website" ? x.kind : specialtyProfile(S.q?.term)?.label || S.q?.term || "";
+  const industry = applicationIndustry(x);
   const saved = savedApplicationAnswers(industry);
-  assistant = {x, trigger, batch, industry, answers:saved || {}, step:saved ? APPLICATION_QUESTIONS.length : 0,
-    autoDraft:!!saved || !!batch, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
+  assistant = {x, trigger, industry, answers:saved || {}, step:saved ? APPLICATION_QUESTIONS.length : 0,
+    autoDraft:!!saved, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
   $("assistantCompany").textContent = x.name;
   $("assistantBackdrop").classList.add("open");
   $("assistantSheet").classList.add("open");
-  $("assistantSkip").classList.toggle("hidden",!batch);
   showAssistantDraftOptions(assistant);
   if (!config) checkAssistantAccess(assistant);
 }
-function closeAssistant(returnToList = true) {
-  const trigger = assistant?.trigger, batch = assistant?.batch;
+function closeAssistant() {
+  const trigger = assistant?.trigger;
   assistant = null;
   $("assistantBackdrop").classList.remove("open");
   $("assistantSheet").classList.remove("open");
   document.activeElement?.blur();
-  if (batch && returnToList) return showApplicationList(batch);
   (trigger?.isConnected ? trigger : document.querySelector(".card [data-a=assistant]"))?.focus();
 }
 function templateDraft(x, answers) {
@@ -2889,7 +2982,10 @@ function templateDraft(x, answers) {
   const facts = [experience, strength, availability].filter(Boolean).join(" ");
   return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
 }
-async function aiDraft(config, x, industry, answers) {
+function formatApplicationDraft(body,greeting,name) {
+  return [greeting + ",",body,["Mit freundlichen Grüßen",name].filter(Boolean).join("\n")].join("\n\n");
+}
+async function aiDraft(config, x, industry, answers, retryRateLimit = false) {
   const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
   const target = [coachProfile.role,coachProfile.goal].filter(Boolean).join(" · ").slice(0,160);
   if (target) input.set("goal",target);
@@ -2900,6 +2996,7 @@ async function aiDraft(config, x, industry, answers) {
   facts.sort((a,b)=>b.score-a.score);
   for (const {claim} of facts.slice(0,4)) input.append("profile_fact",claim);
   const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
+  if (retryRateLimit && reply.status === 429) throw Error("draft_rate_limit");
   if (!reply.ok) return null;
   const parsed = JSON.parse(reply.text);
   if (typeof parsed.subject !== "string" || !parsed.subject.trim() || parsed.subject.length > 150 || /[\r\n]/.test(parsed.subject)
@@ -2914,14 +3011,14 @@ async function generateAssistantDraft(useAI) {
   state.autoDraft = false;
   state.busy = true;
   renderAssistant();
-  const contact = !state.batch && needsContactScan(x) ? scanContact(x).then(() => {
+  const contact = needsContactScan(x) ? scanContact(x).then(() => {
     if (S.items.includes(x)) { save(); render(new Set([x])); }
   }) : Promise.resolve();
   const generated = config ? await aiDraft(config, x, industry, answers).catch(() => null) : null;
   await contact;
   if (assistant !== state) return;
   const content = generated || templateDraft(x, answers);
-  const body = [`${applicationGreeting(x)},`, content.body, ["Mit freundlichen Grüßen", tpl.name].filter(Boolean).join("\n")].join("\n\n");
+  const body = formatApplicationDraft(content.body,applicationGreeting(x),tpl.name);
   state.draft = {subject:content.subject, body, source:generated ? "KI-Entwurf" : config ? "KI gerade nicht verfügbar · Entwurf aus Vorlage" : "Entwurf aus Vorlage"};
   state.busy = false;
   renderAssistant();
@@ -3462,33 +3559,62 @@ function mailError(error) {
     mail_disconnected:"Verbinde zuerst deine E-Mail-Adresse.",invalid_confirmation:"Der Code ist falsch oder abgelaufen. Du kannst die Anmeldung erneut öffnen.",
     invalid_attachment:"Wähle eine unterstützte Datei bis 2 MB.",invalid_draft:"Überprüfe Empfänger, Betreff und Text.",
     invalid_attachment_count:"Wähle höchstens sechs Anhänge.",attachment_total_too_large:"Die Anhänge dürfen zusammen höchstens 8 MB groß sein.",
+    draft_storage:"Der Entwurf konnte nicht gespeichert werden.",
     recipient_changed:"Die Antwortadresse hat sich geändert. Öffne die Unterhaltung erneut.",send_pending:"Der Versand wird noch geprüft.",
     try_again_later:"Versuch es in einer Minute erneut.",
     mail_unavailable:"E-Mail ist gerade nicht verfügbar."};
   return messages[error.message] || "Die E-Mail-Aktion konnte nicht abgeschlossen werden. Versuch es noch einmal.";
 }
 
-function openMail(view = "inbox", draft = null, batch = null) {
+function openMail(view = "inbox", draft = null) {
   const trigger = view === "settings" ? $("gear") : document.activeElement;
-  if (assistant) closeAssistant(false);
-  mailView = {view,draft,trigger,batch,threads:[],providers:[],account:null,loading:false,error:""};
+  if (assistant) closeAssistant();
+  mailView = {view,draft,trigger,threads:[],providers:[],account:null,loading:false,error:""};
   $("mailBackdrop").classList.add("open");
   $("mailSheet").classList.add("open");
   return mailView;
 }
 
 function closeMail(restoreFocus = true) {
-  const trigger = mailView?.trigger, batch = mailView?.batch;
+  const trigger = mailView?.trigger;
+  if (mailView?.savedDraftId && mailView.view === "compose") recipientAndAttachment(mailView);
   clearTimeout(mailView?.pendingTimer);
+  clearTimeout(mailView?.draftTimer);
   mailView = null;
   $("mailBackdrop").classList.remove("open");
   $("mailSheet").classList.remove("open");
   document.activeElement?.blur();
-  if (batch && restoreFocus) return showApplicationList(batch);
   if (restoreFocus) (trigger?.isConnected ? trigger : $("mailInbox")).focus({preventScroll:true});
 }
 
+function openPreparedInbox(previous) {
+  const inbox = openMail();
+  $("mailSheet").scrollTop = 0;
+  if (!previous?.account) return refreshMail(inbox);
+  inbox.account = previous.account;
+  inbox.providers = previous.providers;
+  inbox.threads = mailThreads;
+  renderMail();
+}
+
+async function reviewPreparedDraft(id) {
+  const draft = preparedDrafts.get(id);
+  if (!draft) return;
+  if (!updatePreparedDraft(id,{reviewed:true,queued:false})) return toast("Der Entwurf konnte nicht geöffnet werden.");
+  const state = openMail("compose",{company:draft.company,recipient:draft.recipient,subject:draft.subject,body:draft.body});
+  state.savedDraftId = id;
+  state.requestId = draft.requestId;
+  $("mailSheet").scrollTop = 0;
+  await refreshMail(state);
+}
+
 function dismissMail() {
+  if (mailView?.savedDraftId && mailView.view === "compose") {
+    if (mailView.sending || mailView.connecting) return;
+    recipientAndAttachment(mailView);
+    clearTimeout(mailView.draftTimer);
+    return openPreparedInbox(mailView);
+  }
   if (mailView?.view !== "disconnect") return closeMail();
   if (mailView.connecting) return;
   mailView.view = "settings";
@@ -3514,6 +3640,7 @@ function backInMail() {
 }
 
 function markConfirmedApplications(threads) {
+  removePreparedDrafts(threads);
   let changed = false, saved = false;
   for (const thread of threads) {
     if (!thread.sent || !thread.id || !thread.business_id) continue;
@@ -3641,8 +3768,8 @@ async function refreshMail(state) {
   }
 }
 
-async function openMailDraft(company, recipient, subject, body, batch = null) {
-  const state = openMail("compose",{company,recipient,subject,body},batch);
+async function openMailDraft(company, recipient, subject, body) {
+  const state = openMail("compose",{company,recipient,subject,body});
   await refreshMail(state);
   if (mailView === state && !state.account && !state.providers.length) {
     closeMail();
@@ -3657,6 +3784,7 @@ function providerButtons(state, label = "verbinden") {
 function recipientAndAttachment(state) {
   if (state.view === "compose" && $("mailTo")) {
     Object.assign(state.draft,{recipient:$("mailTo").value.trim(),subject:$("mailSubject").value.trim(),body:$("mailBody").value});
+    if (state.savedDraftId) savePreparedComposition(state);
     if ($("composeFiles")) {
       state.filesExpanded = $("composeFiles").open;
       state.selectedFiles = [...$("composeFiles").querySelectorAll("input:checked")].map(input=>input.value);
@@ -3664,6 +3792,11 @@ function recipientAndAttachment(state) {
   } else if (state.view === "thread" && $("mailBody")) state.reply = $("mailBody").value;
   const file = $("mailAttachment")?.files?.[0];
   if (file) state.attachment = file;
+}
+
+function savePreparedComposition(state) {
+  const {recipient,subject,body} = state.draft;
+  return updatePreparedDraft(state.savedDraftId,{recipient,subject,body,requestId:state.requestId || null});
 }
 
 function applicationFileChoices(state) {
@@ -3693,13 +3826,30 @@ function mailRow(thread) {
     <span class="${thread.latest_inbound ? "mail-reply" : ""}">${status} · ${mailDate.format(thread.latest_at)}</span></button>`;
 }
 
+function preparedMailRows() {
+  return [...preparedDrafts.values()].map(draft=>`<article class="mail-row mail-draft">
+    <div class="mail-draft-preview"><strong>${esc(draft.company.name)}</strong><span>${esc(draft.subject)}</span>
+      <span>${draft.queued ? "KI-Entwurf wird vorbereitet …" : draft.reviewed ? "Entwurf geöffnet" : "Entwurf · Prüfung erforderlich"}</span></div>
+    <button class="link" type="button" data-mail="review-draft" data-draft="${esc(draft.company.id)}" aria-label="Review · ${esc(draft.company.name)}">Review</button>
+  </article>`).join("");
+}
+
+function renderPreparedMailDrafts() {
+  const list = $("preparedMailDrafts");
+  if (mailView?.view !== "inbox" || !list) return;
+  const focused = document.activeElement?.dataset.draft;
+  list.innerHTML = preparedMailRows();
+  if (focused) list.querySelector(`[data-draft="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
+}
+
 function renderMail() {
   const state = mailView;
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
   const inbox = state.view === "inbox", threadOpen = state.view === "thread";
-  $("mailBack").classList.toggle("hidden", state.view !== "settings" && state.view !== "connect");
-  $("mailBack").disabled = !!state.connecting;
+  const savedReview = state.view === "compose" && state.savedDraftId;
+  $("mailBack").classList.toggle("hidden",state.view !== "settings" && state.view !== "connect" && !savedReview);
+  $("mailBack").disabled = !!state.connecting || !!state.sending;
   $("mailRefresh").classList.toggle("hidden", !inbox && !threadOpen);
   $("mailRefresh").disabled = state.loading || !!state.threadLoading || !!state.sending || !!state.connecting;
   $("mailRefresh").setAttribute("aria-label", threadOpen ? "Unterhaltung aktualisieren" : "Postfach aktualisieren");
@@ -3734,14 +3884,15 @@ function renderMail() {
   }
   if (state.view === "compose") {
     const draft = state.draft;
-    content.innerHTML = `${alert}<p class="hint">${esc(draft.company.name)}</p>
+    const saved = state.savedDraftId ? preparedDrafts.get(state.savedDraftId) : null;
+    content.innerHTML = `${alert}<p class="hint">${esc(draft.company.name)}${saved ? ` · ${esc(saved.source)}` : ""}</p>
       <form id="composeMail"><label class="lbl" for="mailTo">Empfänger</label><input id="mailTo" type="email" required maxlength="254">
       <label class="lbl" for="mailSubject">Betreff</label><input id="mailSubject" maxlength="150" required>
       <label class="lbl" for="mailBody">Nachricht</label><textarea id="mailBody" maxlength="16000" required></textarea>
       ${state.loading ? '<p class="mail-status" role="status">E-Mail-Verbindung wird geladen …</p>' : state.account ? `${applicationFileChoices(state)}
         <label class="lbl" for="mailAttachment">Weitere Datei anhängen</label><input type="file" id="mailAttachment" accept="${allAttachmentTypes.join(",")}">
         ${state.attachment ? `<span class="hint">${esc(state.attachment.name)}</span> <button type="button" class="link" data-mail="remove-file">Entfernen</button>` : ""}
-        <p class="hint">Von ${esc(state.account.address)}</p><button type="submit" class="primary">Senden</button>`
+        <p class="hint">Von ${esc(state.account.address)}</p><button type="submit" class="primary" ${state.savedDraftId && !saved?.reviewed ? "disabled" : ""}>Senden</button>`
       : `${state.applicationFiles?.length ? '<p class="hint">Verbinde dein Postfach, um gespeicherte Unterlagen anzuhängen.</p>' : ""}
         <div class="mail-actions">${providerButtons(state)}<button class="link" type="button" data-mail="external">In Mail öffnen</button></div>`}
       ${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}</form>`;
@@ -3752,11 +3903,7 @@ function renderMail() {
   }
   if (state.view === "thread") {
     const thread = state.thread;
-    const navigation = state.batch
-      ? `<button class="link" type="button" data-mail="application-list">‹ Bewerbungsliste</button>
-        ${nextBatchCompany(state.batch) ? '<button class="link" type="button" data-mail="next-application">Nächster Entwurf</button>' : ""}`
-      : '<button class="link" type="button" data-mail="inbox">‹ Postfach</button>';
-    content.innerHTML = `<div class="mail-actions">${navigation}</div>${alert}
+    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Postfach</button></div>${alert}
       ${state.threadLoading ? '<p class="mail-status" role="status">Unterhaltung wird geladen …</p>' : ""}
       ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
       ${thread ? `<p class="hint">${esc(thread.subject)}</p><div id="mailTimeline">${mailTimeline(thread)}</div>
@@ -3768,7 +3915,8 @@ function renderMail() {
     if ($("mailBody")) $("mailBody").value = state.reply || "";
     return;
   }
-  content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}
+  content.innerHTML = `${alert}<div id="preparedMailDrafts" class="mail-rows mail-drafts" aria-label="Entwürfe">${preparedMailRows()}</div>
+    ${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}
     ${state.account ? `${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}
       ${state.threads.length ? `<div class="mail-rows">${state.threads.map(mailRow).join("")}</div>`
       : state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}`
@@ -3857,7 +4005,10 @@ function mailAttachmentFields(files) {
 }
 
 async function submitMail(state, reply) {
-  if (state.sending || state.loading) return;
+  if (mailView !== state || state.sending || state.loading || state.view !== (reply ? "thread" : "compose")) return;
+  if (!reply && state.savedDraftId && !preparedDrafts.get(state.savedDraftId)?.reviewed) {
+    return toast("Öffne den Entwurf im Postfach zur Prüfung.");
+  }
   const revision = mailConnectionRevision;
   recipientAndAttachment(state);
   state.sending = true;
@@ -3867,6 +4018,7 @@ async function submitMail(state, reply) {
   button.textContent = "Wird gesendet …";
   state.requestId ||= Array.from(crypto.getRandomValues(new Uint8Array(16)), byte=>byte.toString(16).padStart(2,"0")).join("");
   try {
+    if (state.savedDraftId && !reply && !savePreparedComposition(state)) throw Error("draft_storage");
     const fields = reply ? {thread:state.threadId,recipient:state.thread.replyTo,subject:state.thread.subject,body:state.reply}
       : {business:state.draft.company.id,company:state.draft.company.name,recipient:state.draft.recipient,subject:state.draft.subject,body:state.draft.body};
     const files = reply ? [] : (state.applicationFiles || []).filter(file=>state.selectedFiles?.includes(file.id));
@@ -3880,36 +4032,41 @@ async function submitMail(state, reply) {
     const result = await mailAPI(action,{...fields,...attachments,id:state.requestId});
     if (!reply && revision === mailConnectionRevision && ["sent","sending"].includes(result.state)) {
       const id = state.draft.company.id;
-      state.batch?.submitted.add(id);
       if (result.state === "sent") markConfirmedApplications([{id:result.thread,sent:true,business_id:id,latest_at:Date.now()}]);
       else {
         pendingApplications.add(id);
+        removePreparedDrafts([{pending:true,business_id:id}]);
         updateResultActions(visible());
       }
-      if (state.batch && $("applicationListSheet").classList.contains("open")) showApplicationList(state.batch);
     }
     if (mailView !== state) return;
     if (result.state === "failed") {
       state.requestId = null;
+      if (!reply && state.savedDraftId) savePreparedComposition(state);
       state.error = "Die E-Mail konnte nicht gesendet werden. Du kannst es erneut versuchen.";
       return;
     }
     state.attachment = null;
     state.requestId = null;
     state.reply = "";
+    if (!reply) state.savedDraftId = null;
     if (reply && $("mailBody")) $("mailBody").value = "";
     state.sending = false;
     await showMailThread(state,result.thread);
   } catch (error) {
     state.error = mailError(error);
-    if (error.message === "mail_reconnect") { state.reconnect = true; state.requestId = null; }
+    if (error.message === "mail_reconnect") {
+      state.reconnect = true;
+      state.requestId = null;
+      if (!reply && state.savedDraftId) savePreparedComposition(state);
+    }
   } finally {
     state.sending = false;
     if (mailView === state) renderMail();
   }
 }
 
-$("mailInbox").onclick = () => refreshMail(openMail());
+$("mailInbox").onclick = () => { openPreparedInbox(); generatePreparedDrafts(); };
 $("mailClose").onclick = $("mailBackdrop").onclick = dismissMail;
 $("mailBack").onclick = backInMail;
 $("mailRefresh").onclick = () => {
@@ -3919,6 +4076,14 @@ $("mailRefresh").onclick = () => {
   if (state.view === "inbox") return refreshMail(state);
 };
 $("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); backInMail(); } });
+$("mailContent").oninput = event => {
+  const state = mailView;
+  if (!state?.savedDraftId || state.view !== "compose" || !["mailTo","mailSubject","mailBody"].includes(event.target.id)) return;
+  clearTimeout(state.draftTimer);
+  state.draftTimer = setTimeout(()=>{
+    if (mailView === state && state.view === "compose") recipientAndAttachment(state);
+  },250);
+};
 $("mailContent").onchange = event => {
   if (!event.target.matches("#composeFiles input")) return;
   const count = $("composeFiles").querySelectorAll("input:checked").length;
@@ -3952,11 +4117,8 @@ $("mailContent").onclick = async event => {
   } else if (action === "inbox") {
     state.view = "inbox";
     await refreshMail(state);
-  } else if (action === "application-list") {
-    closeMail();
-  } else if (action === "next-application") {
-    closeMail(false);
-    startNextApplication(state.batch);
+  } else if (action === "review-draft" && state.view === "inbox") {
+    await reviewPreparedDraft(button.dataset.draft);
   } else if (action === "retry-settings") {
     await refreshMail(state);
   } else if (action === "thread") {
@@ -4154,7 +4316,7 @@ $("applicationListItems").onchange = event => {
   else applicationBatch.selected.delete(value);
   updateApplicationListStart(applicationBatch,batchCandidates(applicationBatch));
 };
-$("applicationListStart").onclick = () => startNextApplication(applicationBatch);
+$("applicationListStart").onclick = () => prepareApplicationBatch(applicationBatch);
 $("websiteForm").onsubmit = addWebsite;
 $("mapCompanyBackdrop").onclick = $("mapCompanyClose").onclick = closeMapCompany;
 $("mapCompanySheet").addEventListener("keydown", event => {
@@ -4185,20 +4347,18 @@ $("settingsTemplateLink").onclick = () => showSettingsPage("settingsTemplate");
 $("settingsCoachLink").onclick = () => showSettingsPage("settingsCoach");
 $("settingsAppLink").onclick = () => showSettingsPage("settingsApp");
 $("assistantBackdrop").onclick = $("assistantClose").onclick = () => closeAssistant();
-$("assistantSkip").onclick = () => {
-  const batch = assistant?.batch;
-  if (!batch) return;
-  batch.selected.delete(assistant.x.id);
-  closeAssistant(false);
-  startNextApplication(batch);
-};
 $("assistantSheet").addEventListener("keydown", event => {
   if (event.key === "Escape") { event.preventDefault(); closeAssistant(); }
 });
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && assistant?.access === "approval") checkAssistantAccess(assistant);
-  if (document.hidden) clearTimeout(mailCheckTimer);
-  else checkMailAutomatically();
+  if (document.hidden) {
+    clearTimeout(mailCheckTimer);
+    if (mailView?.savedDraftId && mailView.view === "compose") recipientAndAttachment(mailView);
+  } else {
+    checkMailAutomatically();
+    generatePreparedDrafts();
+  }
 });
 $("assistantContent").onclick = async e => {
   const button = e.target.closest("button");
@@ -4221,7 +4381,7 @@ $("assistantContent").onclick = async e => {
       assistant.draft.body = $("draftBody").value;
     }
     coachResumeAssistant = assistant;
-    closeAssistant(false);
+    closeAssistant();
     openSheet();
     showSettingsPage("settingsCoach");
   } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
@@ -4232,7 +4392,7 @@ $("assistantContent").onclick = async e => {
     await shareActivationCode(assistant.config?.activation);
   } else if (button.dataset.ass === "mail") {
     const mail = emailsOf(assistant.x)[0];
-    if (mail) await openMailDraft(assistant.x, mail, $("draftSubject").value, $("draftBody").value,assistant.batch);
+    if (mail) await openMailDraft(assistant.x, mail, $("draftSubject").value, $("draftBody").value);
   } else if (button.dataset.ass === "copy") {
     const body = $("draftBody");
     try {
@@ -4266,6 +4426,7 @@ renderChips(); renderSeg(); enrichContacts(S); statusSummary(); updateAok();
 
 if (hasNative) { Native.ready(); renderUpdate(""); setTimeout(() => checkUpdate(false), 1500); }
 checkMailAutomatically();
+generatePreparedDrafts();
 
 window.JR = {filtersFor, buildQuery, parseElements, extract, crawl, cleanMail};
 </script>
