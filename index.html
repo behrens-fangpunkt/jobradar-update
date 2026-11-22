@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="22">
+<meta name="jr-version" content="23">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -739,6 +739,8 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .status.err{color:var(--warn)}
 .status{white-space:pre-line}
 .status:empty{display:none}
+#contactProgress{margin:5px 2px;color:var(--mute);font-size:12px}
+#contactProgress:empty{display:none}
 .addr{position:relative}
 .aok{color:var(--ok)!important;display:none}
 .aok.on{display:block}
@@ -809,8 +811,14 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 /* Dock unten */
 .dock{position:fixed;left:0;right:0;bottom:0;padding:12px 16px 16px;background:linear-gradient(180deg,rgba(246,245,251,0) 0%,var(--bg) 35%);max-width:640px;margin:0 auto}
 .dock .primary{position:relative;overflow:hidden;box-shadow:0 6px 20px rgba(79,70,229,.35);font-size:15.5px}
-.dock .primary .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.18);transition:width .3s}
-.dock .primary span{position:relative;display:flex;gap:9px;align-items:center}
+#applicationListSheet.open{display:flex;flex-direction:column;overflow:hidden}
+#applicationListSheet .sheet-head,#applicationListSheet .grab{flex:none}
+#applicationListItems{overflow:auto;min-height:0;overscroll-behavior:contain}
+.application-choice{display:flex;align-items:center;gap:10px;min-height:48px;padding:7px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.application-choice span{min-width:0;overflow-wrap:anywhere}
+.application-choice small{display:block;color:var(--mute)}
+.application-choice input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:var(--acc)}
+#applicationListStart{flex:none;margin-top:12px}
 
 /* Einstellungen */
 .backdrop{position:fixed;inset:0;background:rgba(23,22,43,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10}
@@ -918,15 +926,16 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   .map-mode .dock .primary{padding:8px 12px}
 }
 @media (orientation:landscape) and (max-height:500px){
-  .map-mode body{display:grid;grid-template-columns:minmax(230px,2fr) minmax(0,3fr);grid-template-rows:repeat(5,auto) minmax(0,1fr) auto;column-gap:12px;padding-top:6px}
+  .map-mode body{display:grid;grid-template-columns:minmax(230px,2fr) minmax(0,3fr);grid-template-rows:repeat(5,auto) minmax(0,1fr) auto auto;column-gap:12px;padding-top:6px}
   .map-mode .top,.map-mode .summary,.map-mode .viewseg,.map-mode .filters,.map-mode .dock{grid-column:1}
   .map-mode .banner{grid-area:1 / 1 / 2 / -1}
   .map-mode .top{grid-row:2}
   .map-mode .summary{grid-row:3}
   .map-mode .viewseg{grid-row:4}
   .map-mode .filters{grid-row:5;margin-left:0;margin-right:0;padding:0}
-  .map-mode .dock{grid-row:7}
-  .map-mode .mapwrap{grid-area:2 / 2 / -1 / 3;margin-top:0}
+  .map-mode #contactProgress{grid-area:8 / 2;margin:2px 0 0}
+  .map-mode .dock{grid-row:7 / 9;align-self:end}
+  .map-mode .mapwrap{grid-area:2 / 2 / 8 / 3;margin-top:0}
 }
 .me-pin{width:22px;height:22px;border-radius:50%;background:var(--acc);border:4px solid #fff;box-shadow:0 0 0 6px rgba(79,70,229,.22),0 2px 6px rgba(0,0,0,.3)}
 .maphint{text-align:center;color:var(--mute);font-size:13.5px;padding:8px 0 4px}
@@ -997,6 +1006,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 
 <div class="viewseg hidden" id="viewseg"><button data-v="list"><svg><use href="#i-list"/></svg>Liste</button><button data-v="map"><svg><use href="#i-map"/></svg>Karte</button></div>
 <div class="filters hidden" id="filters"></div>
+<p id="contactProgress" role="status"></p>
 <div class="status" id="status"></div>
 <div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
   <p class="hint hidden" id="mapEmpty">Keine Treffer mit Kartenposition.</p>
@@ -1015,8 +1025,19 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 </div>
 
 <div class="dock hidden" id="dock">
-  <button class="primary" id="crawl"><i class="fill" id="fill"></i><span><svg><use href="#i-spark"/></svg><b id="crawlL">Kontakte finden</b></span></button>
+  <button class="primary" id="applicationListButton" type="button"><svg aria-hidden="true"><use href="#i-spark"/></svg><span id="applicationListLabel">Bewerbungen vorbereiten</span></button>
 </div>
+
+<div class="backdrop" id="applicationListBackdrop"></div>
+<section class="sheet" id="applicationListSheet" role="dialog" aria-modal="true" aria-labelledby="applicationListTitle">
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <h2 id="applicationListTitle" tabindex="-1">Bewerbungsliste</h2>
+    <button class="icon-btn" id="applicationListClose" type="button" aria-label="Schließen"><svg aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div id="applicationListItems"></div>
+  <button class="primary" id="applicationListStart" type="button" disabled>Entwurf vorbereiten</button>
+</section>
 
 <div class="backdrop" id="mapCompanyBackdrop"></div>
 <section class="sheet" id="mapCompanySheet" role="dialog" aria-modal="true" aria-label="Firma auf der Karte">
@@ -1086,6 +1107,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   </div>
   <p class="hint" id="assistantCompany"></p>
   <div id="assistantContent"></div>
+  <button class="link hidden" id="assistantSkip" type="button">Überspringen</button>
 </section>
 <div class="backdrop" id="mailBackdrop"></div>
 <section class="sheet" id="mailSheet" role="dialog" aria-modal="true" aria-labelledby="mailTitle">
@@ -2202,7 +2224,7 @@ function installUpdate(){
 
 /* ============================================================ Zustand */
 let S = store.get("jr_last", null) || {q:null, items:[]};
-let filter = "all", running = false;
+let filter = "all", contactRun = null, applicationBatch = null;
 let applied = store.get("jr_applied", {});
 const applicationThreads = new Map();
 let tpl = Object.assign({}, DEFAULT_TPL, store.get("jr_tpl", {}));
@@ -2211,8 +2233,8 @@ let chosenLoc = store.get("jr_loc", null);
 let view = store.get("jr_view", "list");
 const save = () => store.set("jr_last", S);
 
-const emailsOf = x => uniq([...(x.c?.emails || []), x.email].filter(Boolean).flatMap(e => e.split(/[;,]\s*/)))
-  .filter(m => !THIRD_PARTY_MAIL.test(m));
+const emailsOf = x => uniq([...(x.c?.emails || []), x.email].filter(Boolean)
+  .flatMap(e => e.split(/[;,]\s*/)).map(cleanMail).filter(m => m && !THIRD_PARTY_MAIL.test(m)));
 const needsContactScan = x => !!x.website && (!x.c || (!x.c.person && x.c.contactVersion !== 2));
 const contactScans = new WeakMap();
 const applicationsInProgress = new WeakSet();
@@ -2228,7 +2250,9 @@ function scanContact(x) {
   contactScans.set(x, scan);
   return scan;
 }
-const phonesOf = x => uniq([x.phone, ...(x.c ? x.c.phones : [])].filter(Boolean).flatMap(p => p.split(/;\s*/)), p => p.replace(/\D/g,"").slice(-8));
+const phonesOf = x => uniq([x.phone, ...(x.c?.phones || [])].filter(Boolean).flatMap(p => p.split(/;\s*/))
+  .filter(p => p.replace(/\D/g,"").length >= 6), p => p.replace(/\D/g,"").slice(-8));
+const hasDirectContact = x => emailsOf(x).length > 0 || phonesOf(x).length > 0;
 const isApplied = x => !!applied[x.id];
 
 /* ============================================================ UI */
@@ -2245,7 +2269,7 @@ function card(x){
   const thread = applicationThreads.get(x.id);
   let b = "";
   if (c && c.jobs) b += `<span class="badge ok">Jobseite</span>`;
-  if (c) c.hints.slice(0, 4).forEach(h => b += `<span class="badge gold">${esc(h)}</span>`);
+  if (c) (c.hints || []).slice(0, 4).forEach(h => b += `<span class="badge gold">${esc(h)}</span>`);
   if (ap && !thread) b += `<span class="badge done">✓ Beworben</span>`;
   const profile = specialtyProfile(S.q?.term);
   if (profile && x.relevance && x.relevance <= (profile.terms === VISUALIZATION_TERMS ? 3 : 1)) {
@@ -2262,15 +2286,15 @@ function card(x){
   let note = "";
   if (x.state === "run") note = `<div class="scan"></div>`;
   else if (c && c.error) note = `<p class="note err">${esc(c.error)}</p>`;
-  else if (c && !mails.length && !c.jobs) note = `<p class="note">Keine Jobseite oder Mail auf der Webseite gefunden.</p>`;
+  else if (c && !mails.length && !phones.length && !c.jobs) note = `<p class="note">Keine direkten Kontaktdaten auf der Webseite gefunden.</p>`;
   else if (!x.website && !mails.length && !phones.length) note = `<p class="note">Keine Webseite hinterlegt – über Google suchen.</p>`;
   let a = "";
   if (thread) a += `<button class="act done" data-a="thread" title="Unterhaltung öffnen">Beworben${icon("check")}</button>`;
   else if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
-  else if (needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
+  if (phones.length) a += `<button class="act${mails.length || thread ? "" : " main"}" data-a="call">${icon("phone")}Anrufen</button>`;
+  else if (!mails.length && !thread && needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
   a += `<button class="act" data-a="assistant">${icon("spark")}Assistent</button>`;
-  if (c && c.jobs) a += `<button class="act${mails.length || thread ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
-  if (phones.length) a += `<button class="act" data-a="call">${icon("phone")}Anrufen</button>`;
+  if (c && c.jobs) a += `<button class="act${mails.length || phones.length || thread ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
   if (x.website) a += `<button class="act" data-a="web">${icon("globe")}Webseite</button>`;
   if (!x.website || (c && !mails.length && !c.jobs)) a += `<button class="act" data-a="google">${icon("search")}Google</button>`;
   if (Number.isFinite(x.lat)) a += `<button class="act" data-a="map">${icon("map")}Karte</button>`;
@@ -2284,22 +2308,27 @@ function card(x){
 function visible(){
   const it = S.items;
   if (filter === "jobs") return it.filter(x => x.c && x.c.jobs);
-  if (filter === "contact") return it.filter(x => x.c?.person || emailsOf(x).length || phonesOf(x).length);
+  if (filter === "contact") return it.filter(hasDirectContact);
   if (filter === "open") return it.filter(x => !isApplied(x));
   if (filter === "applied") return it.filter(isApplied);
   return it;
 }
 const listDistance = x => Number.isFinite(x.km) ? x.km : Infinity;
+function orderedResults(items) {
+  return items.map(x=>({x,contact:Number(hasDirectContact(x))}))
+    .sort((a,b)=>b.contact-a.contact || listDistance(a.x)-listDistance(b.x))
+    .map(item=>item.x);
+}
 function renderFilters(){
   const it = S.items, crawled = it.some(x => x.c);
   const defs = [["all","Alle",it.length]];
   if (crawled) defs.push(["jobs","Mit Jobseite", it.filter(x => x.c && x.c.jobs).length]);
-  defs.push(["contact","Mit Kontakt", it.filter(x => x.c?.person || emailsOf(x).length || phonesOf(x).length).length]);
+  defs.push(["contact","Mit Kontakt", it.filter(hasDirectContact).length]);
   defs.push(["open","Offen", it.filter(x => !isApplied(x)).length]);
   defs.push(["applied","Beworben", it.filter(isApplied).length]);
   $("filters").innerHTML = defs.map(([k, l, n]) => `<button class="chip${filter === k ? " on" : ""}" data-f="${k}">${l}<i>${n}</i></button>`).join("");
 }
-function render(){
+function render(changedCards){
   const has = !!S.q;
   const editing = !!render.editing;
   const loading = !$("loading").classList.contains("hidden");
@@ -2311,6 +2340,7 @@ function render(){
   $("summary").classList.toggle("hidden", !has);
   $("filters").classList.toggle("hidden", !S.items.length || !showResults);
   $("dock").classList.toggle("hidden", !S.items.length || !showResults);
+  $("contactProgress").classList.toggle("hidden",!showResults);
   $("empty").classList.toggle("hidden", has || loading);
   $("edit").textContent = editing ? "Abbrechen" : "Ändern";
   $("edit").setAttribute("aria-expanded", String(editing));
@@ -2334,22 +2364,45 @@ function render(){
     $("mapCompanySheet").classList.toggle("open", !!selected);
     $("list").innerHTML = "";
   } else if (showResults) {
-    const nearestFirst = [...v].sort((a,b) => listDistance(a) - listDistance(b));
-    $("list").innerHTML = nearestFirst.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
+    renderCompanyList(orderedResults(v),changedCards);
   }
-  updateCrawlBtn();
+  updateResultActions(v);
+}
+function cardElement(x) {
+  const container = document.createElement("div");
+  container.innerHTML = card(x);
+  container.firstElementChild.style.animation = "none";
+  return container.firstElementChild;
+}
+function renderCompanyList(items,changedCards) {
+  const list = $("list");
+  if (!changedCards || !items.length) {
+    list.innerHTML = items.map(card).join("") || (S.q && S.items.length ? '<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>' : "");
+    return;
+  }
+  const cards = new Map([...list.children].map(element=>[element.dataset.id,element]));
+  items.forEach((x,index)=>{
+    let element = cards.get(x.id);
+    if (!element || changedCards.has(x)) {
+      const updated = cardElement(x);
+      if (element) element.replaceWith(updated);
+      element = updated;
+    }
+    const atIndex = list.children[index] || null;
+    if (element !== atIndex) list.insertBefore(element,atIndex);
+  });
+  while (list.children.length > items.length) list.lastElementChild.remove();
 }
 function rerenderCard(x){
   const el = document.querySelector(`.card[data-id="${CSS.escape(x.id)}"]`);
-  if (el) { const d = document.createElement("div"); d.innerHTML = card(x); d.firstElementChild.style.animation = "none"; el.replaceWith(d.firstElementChild); }
+  if (el) el.replaceWith(cardElement(x));
 }
-function updateCrawlBtn(done, total){
-  const todo = S.items.filter(needsContactScan).length;
-  const btn = $("crawl");
-  if (running) { $("crawlL").textContent = `Suche Kontakte … ${done || 0}/${total || 0}`; $("fill").style.width = (total ? 100 * done / total : 0) + "%"; btn.disabled = true; return; }
-  $("fill").style.width = "0";
-  btn.disabled = !todo;
-  $("crawlL").textContent = todo ? `Kontakte finden (${todo})` : (S.items.some(x => x.c) ? "Kontakte gefunden ✓" : "Keine Webseiten zum Durchsuchen");
+function updateResultActions(items){
+  const count = items.filter(canPrepareApplication).length;
+  $("applicationListButton").disabled = count === 0;
+  $("applicationListLabel").textContent = count ? `Bewerbungen vorbereiten (${count})` : "Bewerbungen vorbereiten";
+  const run = contactRun?.search === S ? contactRun : null;
+  $("contactProgress").textContent = run ? `Kontakte werden gesucht · ${run.done}/${run.total}` : "";
 }
 function setStatus(t, err){ $("status").textContent = t || ""; $("status").classList.toggle("err", !!err); }
 function statusSummary() {
@@ -2388,7 +2441,7 @@ function closeMapCompany(){
   render();
   $("map").focus({preventScroll:true});
 }
-const pinColor = x => isApplied(x) ? "#D6D4E3" : (x.c && x.c.jobs) ? "#0E7C55" : (x.c?.person || emailsOf(x).length || phonesOf(x).length) ? "#4F46E5" : "#9C9AB0";
+const pinColor = x => isApplied(x) ? "#D6D4E3" : x.c?.jobs ? "#0E7C55" : hasDirectContact(x) ? "#4F46E5" : "#9C9AB0";
 function center(){
   if (S.q && S.q.lat != null) return {lat: S.q.lat, lon: S.q.lon};
   const it = S.items; if (!it.length) return {lat: 51.34, lon: 12.37};
@@ -2435,6 +2488,7 @@ function setLoading(on, title, sub){
   $("edit").disabled = on;
   if (on) {
     document.documentElement.classList.remove("map-mode");
+    $("contactProgress").classList.add("hidden");
     $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
     $("ldT").innerHTML = esc((title || "").replace(/\s*…$/, "")) + '<span class="dots"></span>';
     $("ldS").textContent = sub || "";
@@ -2442,24 +2496,25 @@ function setLoading(on, title, sub){
 }
 async function doSearch(){
   if ($("go").disabled) return;
-  const term = $("b").value.trim(), addr = $("a").value.trim();
+  const term = $("b").value.trim(), addr = $("a").value.trim(), km = radius;
   if (!term) { $("b").focus(); return toast("Welche Branche?"); }
   if (!addr) { $("a").focus(); return toast("Von welcher Adresse aus?"); }
   document.activeElement && document.activeElement.blur();
   hideSugg();
-  store.set("jr_rad", radius);
+  store.set("jr_rad", km);
   const go = $("go"); go.disabled = true; go.lastChild.textContent = "Suche läuft …";
   setStatus("");
   setLoading(true, "Adresse wird gesucht …", addr);
   try {
     const loc = await resolveAddress(addr);
     setChosen(loc);
-    const r = await search(term, loc, radius, (t, sub) => setLoading(true, t, sub));
-    S = {q: {term, addr: loc.label, km: radius, origin: loc.label, known: r.known, source: r.source, limited: r.limited, coverage:r.coverage, city:loc.city, lat: loc.lat, lon: loc.lon}, items: r.results};
+    const r = await search(term, loc, km, (t, sub) => setLoading(true, t, sub));
+    S = {q: {term, addr: loc.label, km, origin: loc.label, known: r.known, source: r.source, limited: r.limited, coverage:r.coverage, city:loc.city, lat: loc.lat, lon: loc.lon}, items: r.results};
     mapSel = null; mapFitKey = "";
     filter = "all"; render.editing = false; save();
-    setLoading(false); render(); statusSummary();
+    setLoading(false); statusSummary();
     window.scrollTo({top: 0});
+    enrichContacts(S);
   } catch(e) {
     setLoading(false); render();
     setStatus(e.message || String(e), true);
@@ -2520,28 +2575,41 @@ async function suggest(value, revision) {
     : "Live-Vorschläge nicht verfügbar. Tippe auf Firmen finden, um die Adresse über den Ausweichdienst zu prüfen.";
   showSugg(`<div class="s-hint">${hint}</div>`);
 }
-async function doCrawl(){
-  if (running) return;
-  const todo = S.items.filter(needsContactScan);
-  if (!todo.length) return;
-  running = true; let done = 0; const total = todo.length;
-  updateCrawlBtn(0, total);
-  const queue = todo.slice();
+async function enrichContacts(searchState) {
+  clearTimeout(contactRun?.timer);
+  const queue = searchState.items.filter(x => !x.c?.error && needsContactScan(x))
+    .sort((a,b)=>listDistance(a)-listDistance(b));
+  const run = {search:searchState,done:0,total:queue.length,changed:new Set(),timer:null};
+  contactRun = queue.length ? run : null;
+  render();
+  if (!queue.length) return;
+  const active = () => S === searchState && contactRun === run;
+  function publish() {
+    run.timer = null;
+    if (!active()) return;
+    save();
+    render(run.changed);
+    run.changed.clear();
+  }
   async function worker(){
-    while (queue.length) {
-      const x = queue.shift(); x.state = "run"; rerenderCard(x);
+    while (active() && queue.length) {
+      const x = queue.shift();
+      x.state = "run";
+      rerenderCard(x);
       await scanContact(x);
-      delete x.state; done++; rerenderCard(x); updateCrawlBtn(done, total);
-      if (view === "map" && map) renderMap(visible());
+      delete x.state;
+      if (!active()) return;
+      run.done++;
+      run.changed.add(x);
+      if (run.timer === null) run.timer = setTimeout(publish,250);
     }
   }
-  await Promise.all([worker(), worker(), worker(), worker()]);
-  running = false;
-  const score = x => (x.c && x.c.jobs ? 2 : 0) + (emailsOf(x).length ? 1 : 0);
-  S.items.sort((a, b) => score(b) - score(a) || rankBusinesses(a, b));
-  save(); render(); statusSummary();
-  const j = S.items.filter(x => x.c && x.c.jobs).length, m = S.items.filter(x => emailsOf(x).length).length;
-  toast(`Fertig: ${j} mit Jobseite, ${m} mit E-Mail`);
+  await Promise.all(Array.from({length:Math.min(4,queue.length)},worker));
+  if (!active()) return;
+  clearTimeout(run.timer);
+  contactRun = null;
+  save();
+  render(run.changed);
 }
 function fill(s, x){ return s.replace(/\{firma\}/g, () => x.name).replace(/\{name\}/g, () => tpl.name || ""); }
 function applicationGreeting(x) {
@@ -2572,9 +2640,9 @@ async function applyByMail(x) {
     if (needsContactScan(x)) {
       toast("Suche Ansprechperson …");
       await scanContact(x);
+      if (!S.items.includes(x)) return;
       save();
-      rerenderCard(x);
-      updateCrawlBtn();
+      render(new Set([x]));
     }
     const mail = emailsOf(x)[0];
     if (!mail) { toast("Keine passende E-Mail-Adresse gefunden"); return; }
@@ -2593,10 +2661,62 @@ async function scanBusiness(x) {
   rerenderCard(x);
   await scanContact(x);
   delete x.state;
+  if (!S.items.includes(x)) return;
   save();
-  render();
+  render(new Set([x]));
   statusSummary();
   if (x.c?.error) toast(x.c.error);
+}
+
+/* ---------- Bewerbungsliste ---------- */
+function canPrepareApplication(x) {
+  return !isApplied(x) && !pendingApplications.has(x.id) && emailsOf(x).length > 0;
+}
+function batchCandidates(batch) {
+  return batch.candidates.filter(x=>!batch.submitted.has(x.id) && canPrepareApplication(x));
+}
+function nextBatchCompany(batch) {
+  return batchCandidates(batch).find(x=>batch.selected.has(x.id));
+}
+function setApplicationListOpen(open) {
+  $("applicationListBackdrop").classList.toggle("open",open);
+  $("applicationListSheet").classList.toggle("open",open);
+}
+function updateApplicationListStart(batch, candidates) {
+  const count = candidates.filter(x=>batch.selected.has(x.id)).length;
+  const start = $("applicationListStart");
+  start.disabled = !count;
+  start.textContent = count > 1 ? `Entwürfe vorbereiten (${count})` : "Entwurf vorbereiten";
+}
+function showApplicationList(batch) {
+  if (applicationBatch !== batch || S !== batch.search) return;
+  const candidates = batchCandidates(batch);
+  $("applicationListItems").innerHTML = candidates.map(x=>`<label class="application-choice">
+      <input type="checkbox" value="${esc(x.id)}" ${batch.selected.has(x.id) ? "checked" : ""}>
+      <span><strong>${esc(x.name)}</strong><small>${esc(emailsOf(x)[0])}</small></span></label>`).join("")
+    || '<p class="hint">Für diese Liste sind keine weiteren Bewerbungen offen.</p>';
+  updateApplicationListStart(batch,candidates);
+  setApplicationListOpen(true);
+  $("applicationListTitle").focus({preventScroll:true});
+}
+function openApplicationList() {
+  const candidates = orderedResults(visible().filter(canPrepareApplication));
+  if (!candidates.length) return;
+  applicationBatch = {search:S,candidates,selected:new Set(),submitted:new Set()};
+  showApplicationList(applicationBatch);
+  $("applicationListItems").scrollTop = 0;
+}
+function closeApplicationList() {
+  applicationBatch = null;
+  setApplicationListOpen(false);
+  $("applicationListButton").focus({preventScroll:true});
+}
+function startNextApplication(batch) {
+  if (!batch || applicationBatch !== batch || S !== batch.search) return;
+  const company = nextBatchCompany(batch);
+  if (!company) return showApplicationList(batch);
+  setApplicationListOpen(false);
+  openAssistant(company,$("applicationListStart"),batch);
 }
 
 /* ---------- Bewerbungsassistent ---------- */
@@ -2668,25 +2788,27 @@ function showAssistantDraftOptions(state) {
   else renderAssistant();
 }
 
-function openAssistant(x, trigger) {
+function openAssistant(x, trigger, batch = null) {
   const config = legacyAssistant?.url && legacyAssistant?.code
     ? {url:legacyAssistant.url, credentials:{code:legacyAssistant.code}} : null;
   const industry = x.kind && x.kind !== "Website" ? x.kind : specialtyProfile(S.q?.term)?.label || S.q?.term || "";
   const saved = savedApplicationAnswers(industry);
-  assistant = {x, trigger, industry, answers:saved || {}, step:saved ? APPLICATION_QUESTIONS.length : 0,
-    autoDraft:!!saved, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
+  assistant = {x, trigger, batch, industry, answers:saved || {}, step:saved ? APPLICATION_QUESTIONS.length : 0,
+    autoDraft:!!saved || !!batch, busy:false, draft:null, config, access:config ? "ready" : "unavailable"};
   $("assistantCompany").textContent = x.name;
   $("assistantBackdrop").classList.add("open");
   $("assistantSheet").classList.add("open");
+  $("assistantSkip").classList.toggle("hidden",!batch);
   showAssistantDraftOptions(assistant);
   if (!config) checkAssistantAccess(assistant);
 }
-function closeAssistant() {
-  const trigger = assistant?.trigger;
+function closeAssistant(returnToList = true) {
+  const trigger = assistant?.trigger, batch = assistant?.batch;
   assistant = null;
   $("assistantBackdrop").classList.remove("open");
   $("assistantSheet").classList.remove("open");
   document.activeElement?.blur();
+  if (batch && returnToList) return showApplicationList(batch);
   (trigger?.isConnected ? trigger : document.querySelector(".card [data-a=assistant]"))?.focus();
 }
 function templateDraft(x, answers) {
@@ -2718,7 +2840,9 @@ async function generateAssistantDraft(useAI) {
   state.autoDraft = false;
   state.busy = true;
   renderAssistant();
-  const contact = needsContactScan(x) ? scanContact(x).then(() => { save(); rerenderCard(x); updateCrawlBtn(); }) : Promise.resolve();
+  const contact = !state.batch && needsContactScan(x) ? scanContact(x).then(() => {
+    if (S.items.includes(x)) { save(); render(new Set([x])); }
+  }) : Promise.resolve();
   const generated = config ? await aiDraft(config, x, industry, answers).catch(() => null) : null;
   await contact;
   if (assistant !== state) return;
@@ -2931,6 +3055,7 @@ $("applicationFileSlots").onclick = event => {
 /* ---------- Bewerbungen per E-Mail ---------- */
 let mailView = null;
 let mailThreads = [];
+const pendingApplications = new Set();
 let mailConnectionRevision = 0;
 let mailConnected;
 let mailCheckTimer, mailChecking = false, nextMailBatch = 0;
@@ -2964,22 +3089,23 @@ function mailError(error) {
   return messages[error.message] || "Die E-Mail-Aktion konnte nicht abgeschlossen werden. Versuch es noch einmal.";
 }
 
-function openMail(view = "inbox", draft = null) {
+function openMail(view = "inbox", draft = null, batch = null) {
   const trigger = view === "settings" ? $("gear") : document.activeElement;
-  if (assistant) closeAssistant();
-  mailView = {view,draft,trigger,threads:[],providers:[],account:null,loading:false,error:""};
+  if (assistant) closeAssistant(false);
+  mailView = {view,draft,trigger,batch,threads:[],providers:[],account:null,loading:false,error:""};
   $("mailBackdrop").classList.add("open");
   $("mailSheet").classList.add("open");
   return mailView;
 }
 
 function closeMail(restoreFocus = true) {
-  const trigger = mailView?.trigger;
+  const trigger = mailView?.trigger, batch = mailView?.batch;
   clearTimeout(mailView?.pendingTimer);
   mailView = null;
   $("mailBackdrop").classList.remove("open");
   $("mailSheet").classList.remove("open");
   document.activeElement?.blur();
+  if (batch && restoreFocus) return showApplicationList(batch);
   if (restoreFocus) (trigger?.isConnected ? trigger : $("mailInbox")).focus({preventScroll:true});
 }
 
@@ -3046,10 +3172,12 @@ function resetMailTracking(connected) {
   mailConnectionRevision++;
   mailConnected = connected;
   mailThreads = [];
+  pendingApplications.clear();
   nextMailBatch = 0;
   clearTimeout(mailCheckTimer);
   renderMailUnread();
   if (applicationThreads.size) { applicationThreads.clear(); render(); }
+  else updateResultActions(visible());
 }
 
 async function loadMailThreads() {
@@ -3058,8 +3186,11 @@ async function loadMailThreads() {
   if (revision === mailConnectionRevision) {
     mailConnected = true;
     mailThreads = threads;
+    pendingApplications.clear();
+    for (const thread of threads) if (thread.pending && thread.business_id) pendingApplications.add(thread.business_id);
     markConfirmedApplications(threads);
     renderMailUnread();
+    updateResultActions(visible());
   }
   return threads;
 }
@@ -3131,8 +3262,8 @@ async function refreshMail(state) {
   }
 }
 
-async function openMailDraft(company, recipient, subject, body) {
-  const state = openMail("compose",{company,recipient,subject,body});
+async function openMailDraft(company, recipient, subject, body, batch = null) {
+  const state = openMail("compose",{company,recipient,subject,body},batch);
   await refreshMail(state);
   if (mailView === state && !state.account && !state.providers.length) {
     closeMail();
@@ -3242,7 +3373,11 @@ function renderMail() {
   }
   if (state.view === "thread") {
     const thread = state.thread;
-    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Postfach</button></div>${alert}
+    const navigation = state.batch
+      ? `<button class="link" type="button" data-mail="application-list">‹ Bewerbungsliste</button>
+        ${nextBatchCompany(state.batch) ? '<button class="link" type="button" data-mail="next-application">Nächster Entwurf</button>' : ""}`
+      : '<button class="link" type="button" data-mail="inbox">‹ Postfach</button>';
+    content.innerHTML = `<div class="mail-actions">${navigation}</div>${alert}
       ${state.threadLoading ? '<p class="mail-status" role="status">Unterhaltung wird geladen …</p>' : ""}
       ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
       ${thread ? `<p class="hint">${esc(thread.subject)}</p><div id="mailTimeline">${mailTimeline(thread)}</div>
@@ -3364,8 +3499,15 @@ async function submitMail(state, reply) {
     const attachments = mailAttachmentFields(files);
     const action = reply ? "reply" : attachments.files ? "send-with-attachments" : "send";
     const result = await mailAPI(action,{...fields,...attachments,id:state.requestId});
-    if (!reply && result.state === "sent" && revision === mailConnectionRevision) {
-      markConfirmedApplications([{id:result.thread,sent:true,business_id:state.draft.company.id,latest_at:Date.now()}]);
+    if (!reply && revision === mailConnectionRevision && ["sent","sending"].includes(result.state)) {
+      const id = state.draft.company.id;
+      state.batch?.submitted.add(id);
+      if (result.state === "sent") markConfirmedApplications([{id:result.thread,sent:true,business_id:id,latest_at:Date.now()}]);
+      else {
+        pendingApplications.add(id);
+        updateResultActions(visible());
+      }
+      if (state.batch && $("applicationListSheet").classList.contains("open")) showApplicationList(state.batch);
     }
     if (mailView !== state) return;
     if (result.state === "failed") {
@@ -3431,6 +3573,11 @@ $("mailContent").onclick = async event => {
   } else if (action === "inbox") {
     state.view = "inbox";
     await refreshMail(state);
+  } else if (action === "application-list") {
+    closeMail();
+  } else if (action === "next-application") {
+    closeMail(false);
+    startNextApplication(state.batch);
   } else if (action === "retry-settings") {
     await refreshMail(state);
   } else if (action === "thread") {
@@ -3541,6 +3688,7 @@ function setSearchEditing(editing) {
 window.handleBack = function(){
   if (mailView) { backInMail(); return true; }
   if (assistant) { closeAssistant(); return true; }
+  if ($("applicationListSheet").classList.contains("open")) { closeApplicationList(); return true; }
   if ($("sheet").classList.contains("open")) { backInSettings(); return true; }
   if (render.editing && S.q) { if (!$("edit").disabled) setSearchEditing(false); return true; }
   if ($("mapCompanySheet").classList.contains("open")) { closeMapCompany(); return true; }
@@ -3592,7 +3740,19 @@ $("list").onclick = $("mapCompanyContent").onclick = e => {
   if (b.dataset.a === "assistant") openAssistant(x, b);
   else action(x, b.dataset.a);
 };
-$("crawl").onclick = doCrawl;
+$("applicationListButton").onclick = openApplicationList;
+$("applicationListClose").onclick = $("applicationListBackdrop").onclick = closeApplicationList;
+$("applicationListSheet").addEventListener("keydown",event => {
+  if (event.key === "Escape") { event.preventDefault(); closeApplicationList(); }
+});
+$("applicationListItems").onchange = event => {
+  if (!applicationBatch || event.target.type !== "checkbox") return;
+  const {value,checked} = event.target;
+  if (checked) applicationBatch.selected.add(value);
+  else applicationBatch.selected.delete(value);
+  updateApplicationListStart(applicationBatch,batchCandidates(applicationBatch));
+};
+$("applicationListStart").onclick = () => startNextApplication(applicationBatch);
 $("websiteForm").onsubmit = addWebsite;
 $("mapCompanyBackdrop").onclick = $("mapCompanyClose").onclick = closeMapCompany;
 $("mapCompanySheet").addEventListener("keydown", event => {
@@ -3621,8 +3781,14 @@ $("settingsMail").onclick = () => {
 $("settingsTemplateLink").onclick = () => showSettingsPage("settingsTemplate");
 $("settingsCoachLink").onclick = () => showSettingsPage("settingsCoach");
 $("settingsAppLink").onclick = () => showSettingsPage("settingsApp");
-$("assistantBackdrop").onclick = closeAssistant;
-$("assistantClose").onclick = closeAssistant;
+$("assistantBackdrop").onclick = $("assistantClose").onclick = () => closeAssistant();
+$("assistantSkip").onclick = () => {
+  const batch = assistant?.batch;
+  if (!batch) return;
+  batch.selected.delete(assistant.x.id);
+  closeAssistant(false);
+  startNextApplication(batch);
+};
 $("assistantSheet").addEventListener("keydown", event => {
   if (event.key === "Escape") { event.preventDefault(); closeAssistant(); }
 });
@@ -3665,7 +3831,7 @@ $("assistantContent").onclick = async e => {
     }
   } else if (button.dataset.ass === "mail") {
     const mail = emailsOf(assistant.x)[0];
-    if (mail) await openMailDraft(assistant.x, mail, $("draftSubject").value, $("draftBody").value);
+    if (mail) await openMailDraft(assistant.x, mail, $("draftSubject").value, $("draftBody").value,assistant.batch);
   } else if (button.dataset.ass === "copy") {
     const body = $("draftBody");
     try {
@@ -3695,7 +3861,7 @@ $("settingsVersion").textContent = `Version ${APP_VERSION}`;
 S.items.forEach(x => delete x.state);
 $("a").value = chosenLoc ? chosenLoc.label : store.get("jr_addr", "");
 if (S.q) $("b").value = S.q.term;
-renderChips(); renderSeg(); render(); statusSummary(); updateAok();
+renderChips(); renderSeg(); enrichContacts(S); statusSummary(); updateAok();
 
 if (hasNative) { Native.ready(); renderUpdate(""); setTimeout(() => checkUpdate(false), 1500); }
 checkMailAutomatically();
