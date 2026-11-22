@@ -207,8 +207,12 @@ async function syncThread(env, owner, account, access, thread, includeBody) {
   if (!thread.thread_ref) return [];
   const messages = await conversation(account.provider,access,account.address,thread.thread_ref,includeBody);
   const last = messages.at(-1);
-  if (last) await query(env.MAIL_DB,"UPDATE mail_threads SET latest_at=?,latest_inbound=? WHERE id=? AND owner=? AND mailbox=? AND latest_at<=?",
-    last.at,last.outgoing ? 0 : 1,thread.id,owner,mailboxKey(account),last.at).run();
+  if (last) await query(env.MAIL_DB,`UPDATE mail_threads SET
+    latest_inbound=CASE WHEN latest_at<=? THEN ? ELSE latest_inbound END,
+    latest_at=MAX(latest_at,?), has_reply=MAX(has_reply,?)
+    WHERE id=? AND owner=? AND mailbox=?`,
+    last.at,last.outgoing ? 0 : 1,last.at,messages.some(message=>!message.outgoing) ? 1 : 0,
+    thread.id,owner,mailboxKey(account)).run();
   return messages;
 }
 
@@ -295,7 +299,7 @@ export async function handleMail(request, env, reply, readForm) {
     if (!account) return reply(401,{error:"mail_disconnected"});
     const mailbox = mailboxKey(account);
     if (path === "/mail/list") {
-      const {results} = await query(env.MAIL_DB,"SELECT id,business_id,company,recipient,subject,latest_at,latest_inbound,thread_ref IS NOT NULL AS sent, EXISTS(SELECT 1 FROM mail_sends WHERE owner=? AND mailbox=? AND thread_id=mail_threads.id AND state='sending') AS pending FROM mail_threads WHERE owner=? AND mailbox=? AND (thread_ref IS NOT NULL OR pending) ORDER BY latest_at DESC",owner,mailbox,owner,mailbox).all();
+      const {results} = await query(env.MAIL_DB,"SELECT id,business_id,company,recipient,subject,latest_at,latest_inbound,has_reply,thread_ref IS NOT NULL AS sent, EXISTS(SELECT 1 FROM mail_sends WHERE owner=? AND mailbox=? AND thread_id=mail_threads.id AND state='sending') AS pending FROM mail_threads WHERE owner=? AND mailbox=? AND (thread_ref IS NOT NULL OR pending) ORDER BY latest_at DESC",owner,mailbox,owner,mailbox).all();
       return reply(200,{threads:results});
     }
     if (!send && path !== "/mail/thread" && path !== "/mail/sync") return reply(404,{error:"not_found"});
@@ -314,7 +318,7 @@ export async function handleMail(request, env, reply, readForm) {
       const lastReply = messages.filter(message=>!message.outgoing).at(-1);
       const {results:pending} = await query(env.MAIL_DB,"SELECT id FROM mail_sends WHERE owner=? AND mailbox=? AND thread_id=? AND state='sending' LIMIT 1",owner,mailbox,thread.id).all();
       return reply(200,{company:thread.company,subject:thread.subject,business_id:thread.business_id,sent:!!thread.thread_ref,latest_at:messages.at(-1)?.at || thread.latest_at,
-        replyTo:lastReply?.replyTo || thread.recipient,messages,pending:!!pending.length});
+        has_reply:!!(thread.has_reply || lastReply),replyTo:lastReply?.replyTo || thread.recipient,messages,pending:!!pending.length});
     }
     return reply(200,await sendDraft(env,owner,account,access,form,thread,multiple));
   } catch (error) {
