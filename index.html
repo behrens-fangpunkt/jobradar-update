@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="26">
+<meta name="jr-version" content="27">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -921,6 +921,14 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   .mail-label{display:none}
 }
 .mail-head{position:sticky;top:-10px;background:var(--card);z-index:1;padding:5px 0}
+#mailSheet.mail-inbox{display:flex;flex-direction:column;height:min(680px,90vh);overflow:hidden}
+.mail-inbox .grab,.mail-inbox .mail-head{flex:none}
+.mail-inbox #mailContent{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding-inline:2px}
+.mail-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;flex:none;margin-bottom:10px;padding:4px;background:var(--bg);border-radius:13px}
+.mail-tabs[hidden]{display:none}
+.mail-tabs button{display:flex;align-items:center;justify-content:center;gap:5px;min-height:44px;padding:6px 3px;border-radius:10px;color:var(--mute);font-size:14px;font-weight:600}
+.mail-tabs button[aria-selected="true"]{background:var(--card);color:var(--acc);box-shadow:var(--tile-shadow)}
+.mail-tab-count{border-radius:10px;background:var(--acc);color:white;padding:1px 5px;font-size:11px}
 .mail-rows{display:grid;gap:9px;padding:3px 0 5px}
 .mail-row{display:block;width:100%;text-align:left;padding:11px 12px;background:var(--card);border:1px solid var(--tile-line);border-radius:14px;box-shadow:var(--tile-shadow)}
 .mail-row strong,.mail-row span{display:block;overflow-wrap:anywhere}
@@ -928,8 +936,6 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .mail-row.has-reply{border-inline-start:4px solid #81B9A3}
 .mail-row.new-reply{border-inline-start-color:var(--ok);background:#F3FBF7}
 .mail-row .mail-reply{color:var(--ok);font-weight:600}
-.mail-drafts{margin-bottom:12px}
-.mail-drafts:empty{display:none}
 .mail-row.mail-draft{display:flex;align-items:center;gap:10px;background:#F1F1F5}
 .mail-draft-preview{min-width:0;flex:1}
 .mail-draft .link{min-height:44px;padding:8px 10px;background:var(--card);border-radius:10px}
@@ -1173,6 +1179,11 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <h2 id="mailTitle" tabindex="-1">Postfach</h2>
     <button class="icon-btn hidden" id="mailRefresh" type="button" aria-label="Postfach aktualisieren"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
     <button class="icon-btn" type="button" id="mailClose" aria-label="Schließen"><svg><use href="#i-x"/></svg></button>
+  </div>
+  <div class="mail-tabs" id="mailTabs" role="tablist" aria-label="Postfach" hidden>
+    <button type="button" id="mailTabReview" data-tab="review" role="tab" aria-controls="mailContent">Review</button>
+    <button type="button" id="mailTabSent" data-tab="sent" role="tab" aria-controls="mailContent">Gesendet</button>
+    <button type="button" id="mailTabOpen" data-tab="open" role="tab" aria-controls="mailContent">Offen <span class="mail-tab-count" aria-hidden="true" hidden></span></button>
   </div>
   <div id="mailContent"></div>
 </section>
@@ -2788,7 +2799,7 @@ function prepareApplicationBatch(batch) {
   if (!commitPreparedDrafts(next)) return toast("Die Entwürfe konnten nicht gespeichert werden.");
   closeApplicationList();
   render(new Set(selected));
-  openPreparedInbox();
+  openMailbox("review");
   generatePreparedDrafts();
 }
 
@@ -3569,7 +3580,7 @@ function mailError(error) {
 function openMail(view = "inbox", draft = null) {
   const trigger = view === "settings" ? $("gear") : document.activeElement;
   if (assistant) closeAssistant();
-  mailView = {view,draft,trigger,threads:[],providers:[],account:null,loading:false,error:""};
+  mailView = {view,draft,trigger,tab:"review",threads:[],providers:[],account:null,loading:false,error:""};
   $("mailBackdrop").classList.add("open");
   $("mailSheet").classList.add("open");
   return mailView;
@@ -3587,14 +3598,21 @@ function closeMail(restoreFocus = true) {
   if (restoreFocus) (trigger?.isConnected ? trigger : $("mailInbox")).focus({preventScroll:true});
 }
 
-function openPreparedInbox(previous) {
+function openMailbox(tab, previous) {
   const inbox = openMail();
+  inbox.tab = tab || (mailThreads.some(unreadReply) ? "open" : preparedDrafts.size ? "review" : "sent");
   $("mailSheet").scrollTop = 0;
-  if (!previous?.account) return refreshMail(inbox);
+  $("mailContent").scrollTop = 0;
+  if (!previous?.account) {
+    const loaded = refreshMail(inbox);
+    $("mailTitle").focus({preventScroll:true});
+    return loaded;
+  }
   inbox.account = previous.account;
   inbox.providers = previous.providers;
   inbox.threads = mailThreads;
   renderMail();
+  $("mailTitle").focus({preventScroll:true});
 }
 
 async function reviewPreparedDraft(id) {
@@ -3613,7 +3631,7 @@ function dismissMail() {
     if (mailView.sending || mailView.connecting) return;
     recipientAndAttachment(mailView);
     clearTimeout(mailView.draftTimer);
-    return openPreparedInbox(mailView);
+    return openMailbox("review",mailView);
   }
   if (mailView?.view !== "disconnect") return closeMail();
   if (mailView.connecting) return;
@@ -3816,14 +3834,17 @@ function mailTimeline(thread) {
     (thread.pending ? '<p class="mail-status">Versand wird geprüft.</p>' : "");
 }
 
+const threadHasReply = thread => Boolean(thread.has_reply || thread.latest_inbound);
+
 function mailRow(thread) {
   const unread = unreadReply(thread);
-  const status = unread ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : thread.latest_inbound
+  const replied = threadHasReply(thread);
+  const status = unread ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : replied
     ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen";
-  const appearance = unread ? " has-reply new-reply" : thread.latest_inbound ? " has-reply" : "";
+  const appearance = unread ? " has-reply new-reply" : replied ? " has-reply" : "";
   return `<button class="mail-row${appearance}" type="button" data-mail="thread" data-thread="${esc(thread.id)}">
     <strong>${esc(thread.company)}</strong><span>${esc(thread.subject)}</span>
-    <span class="${thread.latest_inbound ? "mail-reply" : ""}">${status} · ${mailDate.format(thread.latest_at)}</span></button>`;
+    <span class="${replied ? "mail-reply" : ""}">${status} · ${mailDate.format(thread.latest_at)}</span></button>`;
 }
 
 function preparedMailRows() {
@@ -3831,7 +3852,7 @@ function preparedMailRows() {
     <div class="mail-draft-preview"><strong>${esc(draft.company.name)}</strong><span>${esc(draft.subject)}</span>
       <span>${draft.queued ? "KI-Entwurf wird vorbereitet …" : draft.reviewed ? "Entwurf geöffnet" : "Entwurf · Prüfung erforderlich"}</span></div>
     <button class="link" type="button" data-mail="review-draft" data-draft="${esc(draft.company.id)}" aria-label="Review · ${esc(draft.company.name)}">Review</button>
-  </article>`).join("");
+  </article>`).join("") || '<p class="hint">Keine Entwürfe zur Prüfung.</p>';
 }
 
 function renderPreparedMailDrafts() {
@@ -3842,12 +3863,41 @@ function renderPreparedMailDrafts() {
   if (focused) list.querySelector(`[data-draft="${CSS.escape(focused)}"]`)?.focus({preventScroll:true});
 }
 
+function renderMailbox(state, alert) {
+  const content = $("mailContent");
+  const tabs = $("mailTabs");
+  for (const button of tabs.querySelectorAll("[role=tab]")) {
+    const selected = button.dataset.tab === state.tab;
+    button.setAttribute("aria-selected",String(selected));
+    button.tabIndex = selected ? 0 : -1;
+    if (selected) content.setAttribute("aria-labelledby",button.id);
+  }
+  const unread = state.threads.filter(unreadReply).length;
+  const badge = $("mailTabOpen").querySelector(".mail-tab-count");
+  badge.hidden = !unread;
+  badge.textContent = unread > 99 ? "99+" : unread;
+  $("mailTabOpen").setAttribute("aria-label",unread ? `Offen, ${unread} ungelesene Antworten` : "Offen");
+
+  const review = state.tab === "review", open = state.tab === "open";
+  const threads = state.account && !review ? state.threads.filter(thread=>threadHasReply(thread) === open) : [];
+  const rows = review ? `<div id="preparedMailDrafts" class="mail-rows">${preparedMailRows()}</div>`
+    : threads.length ? `<div class="mail-rows">${threads.map(mailRow).join("")}</div>`
+    : state.account && !state.loading ? `<p class="hint">${open ? "Noch keine Antworten erhalten." : "Keine Bewerbungen warten auf eine Antwort."}</p>` : "";
+  const connection = state.account ? (state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : "")
+    : state.providers.length ? `<p>Verbinde dein Postfach, um Bewerbungen zu senden und Antworten hier zu sehen.</p><div class="mail-actions">${providerButtons(state)}</div>` : "";
+  content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}${rows}${connection}`;
+}
+
 function renderMail() {
   const state = mailView;
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
   const inbox = state.view === "inbox", threadOpen = state.view === "thread";
   const savedReview = state.view === "compose" && state.savedDraftId;
+  $("mailSheet").classList.toggle("mail-inbox",inbox);
+  $("mailTabs").hidden = !inbox;
+  if (inbox) content.setAttribute("role","tabpanel");
+  else { content.removeAttribute("role"); content.removeAttribute("aria-labelledby"); }
   $("mailBack").classList.toggle("hidden",state.view !== "settings" && state.view !== "connect" && !savedReview);
   $("mailBack").disabled = !!state.connecting || !!state.sending;
   $("mailRefresh").classList.toggle("hidden", !inbox && !threadOpen);
@@ -3915,13 +3965,7 @@ function renderMail() {
     if ($("mailBody")) $("mailBody").value = state.reply || "";
     return;
   }
-  content.innerHTML = `${alert}<div id="preparedMailDrafts" class="mail-rows mail-drafts" aria-label="Entwürfe">${preparedMailRows()}</div>
-    ${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}
-    ${state.account ? `${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}
-      ${state.threads.length ? `<div class="mail-rows">${state.threads.map(mailRow).join("")}</div>`
-      : state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}`
-    : state.providers.length ? `<p>Verbinde dein Postfach, um Bewerbungen zu senden und Antworten hier zu sehen.</p><div class="mail-actions">${providerButtons(state)}</div>`
-    : ""}`;
+  renderMailbox(state,alert);
 }
 
 async function refreshOpenMailThread(state, id, revision) {
@@ -4066,7 +4110,23 @@ async function submitMail(state, reply) {
   }
 }
 
-$("mailInbox").onclick = () => { openPreparedInbox(); generatePreparedDrafts(); };
+$("mailInbox").onclick = () => { openMailbox(); generatePreparedDrafts(); };
+function selectMailboxTab(button) {
+  if (mailView?.view !== "inbox" || !button || button.dataset.tab === mailView.tab) return;
+  mailView.tab = button.dataset.tab;
+  renderMail();
+  $("mailContent").scrollTop = 0;
+  button.focus({preventScroll:true});
+}
+$("mailTabs").onclick = event => selectMailboxTab(event.target.closest("[role=tab]"));
+$("mailTabs").onkeydown = event => {
+  const tabs = [...$("mailTabs").querySelectorAll("[role=tab]")];
+  const index = tabs.indexOf(event.target);
+  const next = {ArrowLeft:(index + tabs.length - 1) % tabs.length,ArrowRight:(index + 1) % tabs.length,Home:0,End:tabs.length - 1}[event.key];
+  if (index < 0 || next === undefined) return;
+  event.preventDefault();
+  selectMailboxTab(tabs[next]);
+};
 $("mailClose").onclick = $("mailBackdrop").onclick = dismissMail;
 $("mailBack").onclick = backInMail;
 $("mailRefresh").onclick = () => {
@@ -4115,8 +4175,13 @@ $("mailContent").onclick = async event => {
     closeMail();
     openApplicationMail(recipient,subject,body);
   } else if (action === "inbox") {
+    if (state.thread) state.tab = threadHasReply(state.thread) || state.thread.messages.some(message=>!message.outgoing) ? "open" : "sent";
     state.view = "inbox";
-    await refreshMail(state);
+    const loaded = refreshMail(state);
+    $("mailSheet").scrollTop = 0;
+    $("mailContent").scrollTop = 0;
+    $("mailTitle").focus({preventScroll:true});
+    await loaded;
   } else if (action === "review-draft" && state.view === "inbox") {
     await reviewPreparedDraft(button.dataset.draft);
   } else if (action === "retry-settings") {
