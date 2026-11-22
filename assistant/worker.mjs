@@ -139,13 +139,15 @@ async function analyzeCV(file, apiKey) {
 
 const SELFIE_LIMIT = 1024 * 1024;
 const HEADSHOT_LIMIT = 2 * 1024 * 1024;
-const HEADSHOT_PROMPT = `Make a restrained photographic edit of this selfie for a German job application. Keep the person recognizable at a glance. Limit the edit to the background, gentle overall lighting and color correction, and framing.
+const HEADSHOT_PROMPT = `Make a new, photorealistic studio portrait for a German job application, using the selfie only as the reference for the person. Recompose and relight the portrait as a photographer would at a sitting.
 
-Preserve the person's identity and actual appearance: face shape, proportions, expression, gaze, apparent age, skin tone, hairline, hairstyle, facial hair, and distinctive marks. Preserve the clothing and accessories visible in the selfie. Keep the original glasses if the person is wearing them. If the person is not wearing glasses, do not add any. Do not invent jewelry, makeup, or other accessories.
+Pose and frame: An upright, relaxed posture, shoulders turned slightly toward the camera, face and eyes toward the lens. Use a small, natural closed-mouth smile. Photograph at eye level with normal portrait-lens perspective, roughly 85 mm equivalent. Frame from mid-chest to just above the hair, with both shoulders and comfortable breathing room. Leave out the original selfie angle and any visible arm reaching for the camera.
 
-Use a simple vertical head-and-shoulders composition with a little space above the hair and both shoulders visible where the source framing allows. Replace the surroundings with a plain, very light neutral gray backdrop. Aim for the even exposure of a portrait taken beside a large window: broad, soft light, neutral white balance, and gentle natural shadows. Keep eyes and hair clear, with highlights that retain detail.
+Wardrobe: Use understated business-casual clothing appropriate for an ordinary job application. Keep a suitable plain top if already present. Replace visible sportswear, workout seams, or bold prints with a clean, matte, light neutral knit top or simple collared shirt. Choose one plain garment with realistic fabric texture and no branding.
 
-Keep real pores, fine lines, and natural skin color variation. Avoid skin smoothing, beauty retouching, eye whitening, waxy highlights, artificial sharpness, HDR, dramatic rim light, and heavy blur. The finished image should look like a straightforward photograph, with no added text or border.`;
+Lighting and background: Bright, soft window-style light from slightly off to one side, with gentle fill. Use a clean warm-white or pale stone backdrop with subtle tonal depth. Keep exposure light and even, with soft shadows and an accurate skin tone.
+
+Likeness and finish: Keep the same person, facial structure, age, eye color, hair, facial hair, and distinctive marks. Keep the original glasses if the person is wearing them. If the person is not wearing glasses, do not add any. Preserve pores, fine lines, and natural skin color variation. Avoid beauty filters, glossy skin, overly white teeth, HDR, heavy blur, text, and borders.`;
 
 function readSelfie(form) {
   const data = form.get("image");
