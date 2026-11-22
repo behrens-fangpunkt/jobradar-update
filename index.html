@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="31">
+<meta name="jr-version" content="32">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -3361,6 +3361,7 @@ let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
+const androidCameraInstaller = "https://raw.githubusercontent.com/behrens-fangpunkt/jobradar-update/167097cdd70ccbc280892519a22dea53e6078d65/downloads/JobRadar-Android-camera-v31.apk";
 const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:""};
 const iosPortraitHost = !!window.webkit?.messageHandlers?.jr;
 let portraitCaptureId = 0;
@@ -3452,6 +3453,7 @@ function renderCoachPortrait() {
       ${canPick ? `<button class="link portrait-source" type="button" data-coach="pick-portrait" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Foto auswählen</button>` : ""}
     </div>` : ""}
     ${!canCapture || !canPick ? `<p class="hint">Installiere die neue Version der JobRadar-App, um ${canCapture ? "Fotos auszuwählen" : canPick ? "Selfies aufzunehmen" : "Fotos aufzunehmen und auszuwählen"}.</p>` : ""}
+    ${hasNative && !iosPortraitHost && !canCapture && !canPick ? '<button class="link" type="button" data-coach="download-android">JobRadar für Android herunterladen</button>' : ""}
     ${previewURL ? `<div class="portrait-previews"><figure><img src="${references.front.url}" alt="Dein Foto von vorne"><figcaption>Frontal</figcaption></figure>
       <figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure></div>` : ""}
     ${busy ? `<p class="hint" role="status">${pendingPortraitCapture ? "Fotoauswahl wird geöffnet …" : "Foto wird verarbeitet …"}</p>`
@@ -3676,6 +3678,7 @@ $("settingsCoach").onclick = event => {
     case "portrait-angle": coachPhoto.angle = button.dataset.angle; renderCoachPortrait(); break;
     case "capture-portrait": openPortraitSource(true); break;
     case "pick-portrait": openPortraitSource(false); break;
+    case "download-android": openUrl(androidCameraInstaller); break;
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
     case "share": shareActivationCode(coachActivation); break;
