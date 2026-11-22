@@ -137,25 +137,47 @@ async function ownedThread(env, owner, mailbox, id) {
   return thread;
 }
 
-function attachmentFrom(form) {
-  const data = form.get("attachment");
-  if (!data) return null;
-  const name = form.get("filename")?.trim();
-  const type = form.get("filetype");
-  const types = ["application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document","image/jpeg","image/png","text/plain"];
-  if (!name || name.length > 120 || /[\r\n]/.test(name) || !types.includes(type) || data.length > 2796204
-    || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) throw new MailError(400,"invalid_attachment");
-  return {name,type,data};
+const attachmentTypes = ["application/pdf","application/msword","application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "image/jpeg","image/png","image/heic","image/heif","text/plain"];
+const maxAttachmentSize = 2 * 1024 * 1024;
+const maxAttachmentTotal = 8 * 1024 * 1024;
+
+function attachmentFrom(name, type, data, urlSafe = false) {
+  const pattern = urlSafe ? /^[A-Za-z0-9_-]+={0,2}$/ : /^[A-Za-z0-9+/]+={0,2}$/;
+  if (typeof name !== "string" || !name.trim() || name.length > 120 || /[\x00-\x1f\x7f]/.test(name) || !attachmentTypes.includes(type)
+    || typeof data !== "string" || data.length > Math.ceil(maxAttachmentSize / 3) * 4 || data.length % 4 !== 0 || !pattern.test(data))
+    throw new MailError(400,"invalid_attachment");
+  const size = data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+  if (size > maxAttachmentSize) throw new MailError(400,"invalid_attachment");
+  return {name:name.trim(),type,data:urlSafe ? data.replace(/-/g,"+").replace(/_/g,"/") : data,size};
 }
 
-function readDraft(form) {
+function draftAttachments(form, multiple) {
+  if (!multiple) {
+    const data = form.get("attachment");
+    return data ? [attachmentFrom(form.get("filename"),form.get("filetype"),data)] : [];
+  }
+  const entries = form.getAll("files");
+  if (!entries.length || entries.length > 6) throw new MailError(400,"invalid_attachment_count");
+  let total = 0;
+  return entries.map(entry => {
+    let file;
+    try { file = JSON.parse(entry); } catch (_) { throw new MailError(400,"invalid_attachment"); }
+    const attachment = attachmentFrom(file?.name,file?.type,file?.data,true);
+    total += attachment.size;
+    if (total > maxAttachmentTotal) throw new MailError(400,"attachment_total_too_large");
+    return attachment;
+  });
+}
+
+function readDraft(form, multiple) {
   const recipient = form.get("recipient")?.trim();
   const subject = form.get("subject")?.trim();
   const body = form.get("body")?.trim();
   const id = form.get("id");
   if (!validAddress(recipient) || !subject || subject.length > 150 || /[\r\n]/.test(subject)
     || !body || body.length > 16000 || !/^[a-f0-9]{32}$/.test(id || "")) throw new MailError(400,"invalid_draft");
-  return {id,recipient,subject,body,attachment:attachmentFrom(form)};
+  return {id,recipient,subject,body,attachments:draftAttachments(form,multiple)};
 }
 
 async function confirmSent(db, owner, mailbox, send, ref) {
@@ -190,8 +212,8 @@ async function syncThread(env, owner, account, access, thread, includeBody) {
   return messages;
 }
 
-async function sendDraft(env, owner, account, access, form, existing) {
-  const draft = readDraft(form);
+async function sendDraft(env, owner, account, access, form, existing, multiple) {
+  const draft = readDraft(form,multiple);
   const db = env.MAIL_DB, mailbox = mailboxKey(account), created = Date.now();
   const previous = await query(db,"SELECT id,thread_id,state FROM mail_sends WHERE owner=? AND mailbox=? AND id=?",owner,mailbox,draft.id).first();
   if (previous) return {thread:previous.thread_id,state:previous.state};
@@ -250,9 +272,11 @@ export async function handleMail(request, env, reply, readForm) {
     if (request.method !== "POST") return reply(405,{error:"method_not_allowed"});
     if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") return reply(415,{error:"content_type"});
     if (!env.MAIL_DB || !env.MAIL_TOKEN_KEY) return reply(503,{error:"mail_unavailable"});
-    const send = path === "/mail/send" || path === "/mail/reply";
-    const form = await readForm(request,send ? 8500000 : 4096);
-    if (!form) return reply(413,{error:"request_too_large"});
+    const multiple = path === "/mail/send-with-attachments";
+    const newApplication = path === "/mail/send" || multiple;
+    const send = newApplication || path === "/mail/reply";
+    const form = await readForm(request,multiple ? 11600000 : send ? 8500000 : 4096);
+    if (!form) return reply(413,{error:multiple ? "attachment_total_too_large" : "request_too_large"});
     const device = form.get("device");
     if (!idPattern.test(device || "")) return reply(401,{error:"invalid_device"});
     const owner = await hash(device);
@@ -274,7 +298,7 @@ export async function handleMail(request, env, reply, readForm) {
       const {results} = await query(env.MAIL_DB,"SELECT id,business_id,company,recipient,subject,latest_at,latest_inbound,thread_ref IS NOT NULL AS sent, EXISTS(SELECT 1 FROM mail_sends WHERE owner=? AND mailbox=? AND thread_id=mail_threads.id AND state='sending') AS pending FROM mail_threads WHERE owner=? AND mailbox=? AND (thread_ref IS NOT NULL OR pending) ORDER BY latest_at DESC",owner,mailbox,owner,mailbox).all();
       return reply(200,{threads:results});
     }
-    if (!["/mail/thread","/mail/sync","/mail/send","/mail/reply"].includes(path)) return reply(404,{error:"not_found"});
+    if (!send && path !== "/mail/thread" && path !== "/mail/sync") return reply(404,{error:"not_found"});
     const access = await accessToken(env,owner,account);
     if (path === "/mail/sync") {
       const ids = [...new Set(form.getAll("thread"))];
@@ -284,7 +308,7 @@ export async function handleMail(request, env, reply, readForm) {
       if (failures.length === results.length) throw failures[0].reason;
       return reply(200,{partial:!!failures.length});
     }
-    const thread = path === "/mail/send" ? null : await ownedThread(env,owner,mailbox,form.get("thread"));
+    const thread = newApplication ? null : await ownedThread(env,owner,mailbox,form.get("thread"));
     if (path === "/mail/thread") {
       const messages = await syncThread(env,owner,account,access,thread,true);
       const lastReply = messages.filter(message=>!message.outgoing).at(-1);
@@ -292,7 +316,7 @@ export async function handleMail(request, env, reply, readForm) {
       return reply(200,{company:thread.company,subject:thread.subject,business_id:thread.business_id,sent:!!thread.thread_ref,latest_at:messages.at(-1)?.at || thread.latest_at,
         replyTo:lastReply?.replyTo || thread.recipient,messages,pending:!!pending.length});
     }
-    return reply(200,await sendDraft(env,owner,account,access,form,thread));
+    return reply(200,await sendDraft(env,owner,account,access,form,thread,multiple));
   } catch (error) {
     if (request.method === "GET") return finishPage(null,"service");
     if (error instanceof MailError) return reply(error.status,{error:error.reason});
