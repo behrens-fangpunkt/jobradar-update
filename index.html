@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="32">
+<meta name="jr-version" content="33">
 <meta name="jr-native" content="2">
-<title>JobRadar</title>
+<title>JobRadr</title>
 <style>
 /* Leaflet 1.9.4 (BSD-2) */
 /* required styles */
@@ -1070,7 +1070,7 @@ html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
 
 <header class="top">
   <div class="logo"><svg><use href="#i-radar"/></svg></div>
-  <div class="top-brand"><h1>JobRadar</h1><p>find jobs fast</p></div>
+  <div class="top-brand"><h1>JobRadr</h1><p>find jobs fast</p></div>
   <div class="top-actions">
     <button class="icon-btn" id="coachButton" type="button" aria-label="AI-Coach"><svg aria-hidden="true"><use href="#i-spark"/></svg></button>
     <button class="mail-nav" id="mailInbox" type="button" aria-label="Postfach"><svg aria-hidden="true"><use href="#i-mail"/></svg><span class="mail-label">Postfach</span><span class="mail-unread" id="mailUnread" aria-hidden="true" hidden></span></button>
@@ -1124,7 +1124,7 @@ html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
 <div class="empty" id="empty">
   <div class="art"><svg viewBox="0 0 24 24" style="color:#C9C6F5"><use href="#i-radar"/></svg></div>
   <b>Wo soll's hingehen?</b>
-  Branche wählen, Adresse eintippen, Umkreis festlegen – JobRadar zeigt dir alle passenden Läden und sucht danach Jobseiten und Kontakte raus.
+  Branche wählen, Adresse eintippen, Umkreis festlegen – JobRadr zeigt dir alle passenden Läden und sucht danach Jobseiten und Kontakte raus.
 </div>
 
 <div class="dock hidden" id="dock">
@@ -3158,7 +3158,7 @@ function renderAssistant() {
     const buttons = Object.entries(question.options).map(([value, label]) =>
       `<button class="ghost" type="button" data-answer="${value}" aria-pressed="${answers[question.key] === value}">${label}</button>`).join("");
     box.innerHTML = `<h3 class="assistant-step" tabindex="-1">${esc(label)}</h3>
-      ${step === 0 ? '<p class="hint">Dein Profil bleibt auf diesem Gerät gespeichert. JobRadar nutzt deine Antworten für neue Bewerbungsentwürfe.</p>' : ""}
+      ${step === 0 ? '<p class="hint">Dein Profil bleibt auf diesem Gerät gespeichert. JobRadr nutzt deine Antworten für neue Bewerbungsentwürfe.</p>' : ""}
       <div class="assistant-choices">${buttons}</div>
       <div class="assistant-nav"><button class="link" type="button" data-ass="back" ${step ? "" : "hidden"}>Zurück</button><span class="hint">${step + 1} / ${APPLICATION_QUESTIONS.length}</span></div>`;
   }
@@ -3452,8 +3452,8 @@ function renderCoachPortrait() {
       ${canCapture ? `<button class="link portrait-source" type="button" data-coach="capture-portrait" aria-label="Selfie aufnehmen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>` : ""}
       ${canPick ? `<button class="link portrait-source" type="button" data-coach="pick-portrait" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Foto auswählen</button>` : ""}
     </div>` : ""}
-    ${!canCapture || !canPick ? `<p class="hint">Installiere die neue Version der JobRadar-App, um ${canCapture ? "Fotos auszuwählen" : canPick ? "Selfies aufzunehmen" : "Fotos aufzunehmen und auszuwählen"}.</p>` : ""}
-    ${hasNative && !iosPortraitHost && !canCapture && !canPick ? '<button class="link" type="button" data-coach="download-android">JobRadar für Android herunterladen</button>' : ""}
+    ${!canCapture || !canPick ? `<p class="hint">Installiere die neue Version der JobRadr-App, um ${canCapture ? "Fotos auszuwählen" : canPick ? "Selfies aufzunehmen" : "Fotos aufzunehmen und auszuwählen"}.</p>` : ""}
+    ${hasNative && !iosPortraitHost && !canCapture && !canPick ? '<button class="link" type="button" data-coach="download-android">JobRadr für Android herunterladen</button>' : ""}
     ${previewURL ? `<div class="portrait-previews"><figure><img src="${references.front.url}" alt="Dein Foto von vorne"><figcaption>Frontal</figcaption></figure>
       <figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure></div>` : ""}
     ${busy ? `<p class="hint" role="status">${pendingPortraitCapture ? "Fotoauswahl wird geöffnet …" : "Foto wird verarbeitet …"}</p>`
@@ -4118,7 +4118,7 @@ function renderMail() {
   if (state.view === "disconnect") {
     $("mailTitle").textContent = "E-Mail trennen?";
     const disabled = state.connecting ? "disabled" : "";
-    content.innerHTML = `${alert}<p class="mail-disconnect-address">Möchtest du ${esc(state.account.address)} wirklich von JobRadar trennen?</p>
+    content.innerHTML = `${alert}<p class="mail-disconnect-address">Möchtest du ${esc(state.account.address)} wirklich von JobRadr trennen?</p>
       <div class="row2"><button class="ghost" type="button" data-mail="cancel-disconnect" ${disabled}>Nein</button>
       <button class="primary" type="button" data-mail="confirm-disconnect" ${disabled}>Ja</button></div>`;
     return;
