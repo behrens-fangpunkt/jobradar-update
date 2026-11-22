@@ -5,7 +5,11 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export class ProviderError extends Error {
-  constructor(status) { super(`Mail provider returned ${status}`); this.status = status; }
+  constructor(status, microsoftCode) {
+    super(`Mail provider returned ${status}`);
+    this.status = status;
+    this.microsoftCode = microsoftCode;
+  }
 }
 
 export function base64(bytes) {
@@ -34,7 +38,16 @@ export function providerConfig(provider, env) {
 
 async function fetchJSON(url, options) {
   const result = await fetch(url, {...options, redirect:"error", signal:AbortSignal.timeout(8500)});
-  if (!result.ok) throw new ProviderError(result.status);
+  if (!result.ok) {
+    let microsoftCode;
+    if (new URL(url).hostname === "login.microsoftonline.com") {
+      const info = await result.json().catch(() => null);
+      if (Array.isArray(info?.error_codes)) {
+        microsoftCode = info.error_codes.find(code => Number.isSafeInteger(code) && code > 0 && code <= 9999999);
+      }
+    }
+    throw new ProviderError(result.status,microsoftCode);
+  }
   if (result.status === 202 || result.status === 204) return null;
   return result.json();
 }
