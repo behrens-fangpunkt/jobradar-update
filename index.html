@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="18">
+<meta name="jr-version" content="19">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -735,12 +735,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .status{color:var(--mute);font-size:13px;margin:10px 2px 10px;min-height:1px}
 .status.err{color:var(--warn)}
 .status{white-space:pre-line}
-.discovery{margin:0 0 12px;font-size:14px}
-.discovery summary,.discovery a{color:var(--acc);font-weight:600;cursor:pointer}
-.discovery summary{padding:8px 4px}
-.discovery form{padding:8px 12px;background:#fff;border-radius:14px}
-.discovery input,.discovery .ghost{width:100%;margin-bottom:8px}
-.discovery a{display:inline-block;margin:6px 4px;font-size:12px}
+.status:empty{display:none}
 .addr{position:relative}
 .aok{color:var(--ok)!important;display:none}
 .aok.on{display:block}
@@ -826,6 +821,12 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .sheet input:focus,.sheet textarea:focus{border-color:var(--acc);background:#fff}
 .sheet textarea{min-height:220px;resize:vertical;line-height:1.45}
 .sheet .row2{display:flex;gap:10px;margin-top:16px}
+#mailContent .row2 .primary{flex:1;width:auto}
+.mail-disconnect-address{overflow-wrap:anywhere}
+#websiteDetails{margin-top:16px}
+#websiteDetails summary{cursor:pointer;color:var(--acc);font-weight:600}
+#websiteSubmit{width:100%;margin-top:8px}
+#overtureCredit{display:block;margin-top:16px;color:var(--acc)}
 .ghost{flex:1;padding:14px;border-radius:14px;background:var(--bg);font-weight:600}
 .ghost:disabled{opacity:.55}
 .assistant-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -865,10 +866,37 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .viewseg button{display:flex;align-items:center;justify-content:center;gap:7px;padding:9px 0;border-radius:10px;font-weight:600;font-size:14px;color:var(--mute)}
 .viewseg button svg{width:17px;height:17px}
 .viewseg button.on{background:var(--acc);color:#fff}
-.mapwrap{margin:0 0 10px}
-#map{height:52vh;min-height:300px;border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);background:#E9E7F3;z-index:0}
-.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--mute);margin:10px 2px 0}
+.map-mode,.map-mode body{overflow:hidden;overscroll-behavior:none}
+.map-mode body{height:100vh;height:100dvh;padding-bottom:12px;display:flex;flex-direction:column}
+.map-mode body>header,.map-mode body>div,.map-mode body>.summary{flex-shrink:0}
+.map-mode .mapwrap{display:flex;flex-direction:column;flex:1;min-height:0;margin-top:8px}
+.map-mode .dock{position:static;width:100%;padding:6px 0 0;background:none}
+.map-mode .banner{margin-bottom:6px;padding:4px 8px}
+#map{flex:1;min-height:0;border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow);background:#E9E7F3;z-index:0}
+.legend{display:flex;flex-wrap:wrap;gap:3px 12px;font-size:12px;color:var(--mute);margin:4px 2px 0}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+#mapEmpty{margin:4px 2px 0;font-size:12px;color:var(--mute)}
+#tileBtn{align-self:flex-start;font-size:12px;padding:3px 2px}
+#mapCompanyContent .card{margin:8px 0 0}
+#mapCompanyClose{margin-left:auto}
+@media (max-width:360px), (max-height:500px){
+  .map-mode body{padding-bottom:6px}
+  .map-mode .top{padding:5px 2px}
+  .map-mode .summary{padding:4px 10px}
+  .map-mode .viewseg,.map-mode .filters,.map-mode .mapwrap{margin-top:4px}
+  .map-mode .dock .primary{padding:8px 12px}
+}
+@media (orientation:landscape) and (max-height:500px){
+  .map-mode body{display:grid;grid-template-columns:minmax(230px,2fr) minmax(0,3fr);grid-template-rows:repeat(5,auto) minmax(0,1fr) auto;column-gap:12px;padding-top:6px}
+  .map-mode .top,.map-mode .banner,.map-mode .summary,.map-mode .viewseg,.map-mode .filters,.map-mode .dock{grid-column:1}
+  .map-mode .top{grid-row:1}
+  .map-mode .banner{grid-row:2}
+  .map-mode .summary{grid-row:3}
+  .map-mode .viewseg{grid-row:4}
+  .map-mode .filters{grid-row:5;margin-left:0;margin-right:0;padding:0}
+  .map-mode .dock{grid-row:7}
+  .map-mode .mapwrap{grid-area:1 / 2 / -1 / 3;margin-top:0}
+}
 .me-pin{width:22px;height:22px;border-radius:50%;background:var(--acc);border:4px solid #fff;box-shadow:0 0 0 6px rgba(79,70,229,.22),0 2px 6px rgba(0,0,0,.3)}
 .maphint{text-align:center;color:var(--mute);font-size:13.5px;padding:8px 0 4px}
 .leaflet-control-attribution{font-size:10px!important;background:rgba(255,255,255,.75)!important}
@@ -936,23 +964,10 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 <div class="viewseg hidden" id="viewseg"><button data-v="list"><svg><use href="#i-list"/></svg>Liste</button><button data-v="map"><svg><use href="#i-map"/></svg>Karte</button></div>
 <div class="filters hidden" id="filters"></div>
 <div class="status" id="status"></div>
-<section id="discoveryTools" class="discovery hidden">
-  <button type="button" class="link" id="webDiscovery">Weitere Firmen auf Google Maps</button>
-  <details id="websiteDetails">
-    <summary>Firmenwebsite hinzufügen</summary>
-    <form id="websiteForm">
-      <label class="lbl" for="websiteUrl">Firmenwebsite</label>
-      <input type="text" id="websiteUrl" inputmode="url" autocomplete="url" placeholder="firma.de" required>
-      <label class="lbl" for="websiteName">Firmenname (optional)</label>
-      <input type="text" id="websiteName" placeholder="Firmenname">
-      <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
-    </form>
-  </details>
-  <a id="overtureCredit" class="hidden" href="https://docs.overturemaps.org/attribution/#places">Regionale Firmendaten · Overture Maps Foundation</a>
-</section>
 <div class="mapwrap hidden" id="mapwrap"><div id="map"></div>
+  <p class="hint hidden" id="mapEmpty">Keine Treffer mit Kartenposition.</p>
   <div class="legend"><span><i style="background:#0E7C55"></i>Jobseite</span><span><i style="background:#4F46E5"></i>Kontakt</span><span><i style="background:#9C9AB0"></i>noch offen</span><span><i style="background:#D6D4E3"></i>beworben</span></div>
-  <button class="link" id="tileBtn" style="font-size:13px;padding:6px 2px">Karte lädt nicht richtig? Anderen Kartenstil nehmen (<span id="tileName"></span>)</button></div>
+  <button class="link" id="tileBtn" type="button">Kartenstil wechseln (<span id="tileName"></span>)</button></div>
 <div class="loading hidden" id="loading">
   <div class="radar"><i></i><i></i><i></i><div class="sweep"></div><span class="blip"></span><span class="blip"></span><span class="blip"></span><div class="core"></div></div>
   <b id="ldT">Adresse wird gesucht</b><span id="ldS"></span>
@@ -969,6 +984,14 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <button class="primary" id="crawl"><i class="fill" id="fill"></i><span><svg><use href="#i-spark"/></svg><b id="crawlL">Kontakte finden</b></span></button>
 </div>
 
+<div class="backdrop" id="mapCompanyBackdrop"></div>
+<section class="sheet" id="mapCompanySheet" role="dialog" aria-modal="true" aria-label="Firma auf der Karte">
+  <div class="grab"></div>
+  <div class="assistant-head">
+    <button class="icon-btn" type="button" id="mapCompanyClose" aria-label="Schließen"><svg><use href="#i-x"/></svg></button>
+  </div>
+  <div id="mapCompanyContent"></div>
+</section>
 <div class="backdrop" id="bd"></div>
 <div class="sheet" id="sheet">
   <div class="grab"></div>
@@ -982,6 +1005,16 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <textarea id="tBody"></textarea>
   <p class="hint" style="margin-top:8px">Lebenslauf kannst du in der Mail-App vor dem Senden anhängen.</p>
   <div class="row2"><button class="ghost" id="tReset">Standard</button><button class="primary" id="tSave" style="flex:2">Speichern</button></div>
+  <details id="websiteDetails">
+    <summary>Firmenwebsite hinzufügen</summary>
+    <form id="websiteForm">
+      <label class="lbl" for="websiteUrl">Firmenwebsite</label>
+      <input type="text" id="websiteUrl" inputmode="url" autocomplete="url" placeholder="firma.de" required>
+      <label class="lbl" for="websiteName">Firmenname (optional)</label>
+      <input type="text" id="websiteName" placeholder="Firmenname">
+      <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
+    </form>
+  </details>
   <div class="upd hidden" id="upd">
     <label class="lbl">App-Update</label>
     <p class="hint" id="verInfo"></p>
@@ -989,6 +1022,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
     <p class="hint" id="upMsg" style="text-align:center;margin-top:8px"></p>
     <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
   </div>
+  <a id="overtureCredit" class="hint" href="https://docs.overturemaps.org/attribution/#places">Regionale Firmendaten · Overture Maps Foundation</a>
 </div>
 <div class="backdrop" id="assistantBackdrop"></div>
 <section class="sheet" id="assistantSheet" role="dialog" aria-modal="true" aria-labelledby="assistantTitle">
@@ -2211,28 +2245,34 @@ function renderFilters(){
 }
 function render(){
   const has = !!S.q;
-  $("panel").classList.toggle("hidden", has && !render.editing);
-  $("summary").classList.toggle("hidden", !has || render.editing);
-  $("filters").classList.toggle("hidden", !S.items.length);
-  $("dock").classList.toggle("hidden", !S.items.length || render.editing);
+  const editing = !!render.editing;
+  const hasMap = S.items.some(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
+  const showMap = hasMap && view === "map" && !editing;
+  document.documentElement.classList.toggle("map-mode", showMap);
+  $("panel").classList.toggle("hidden", has && !editing);
+  $("summary").classList.toggle("hidden", !has || editing);
+  $("filters").classList.toggle("hidden", !S.items.length || editing);
+  $("dock").classList.toggle("hidden", !S.items.length || editing);
   $("empty").classList.toggle("hidden", has);
   if (has) {
     $("sumT").textContent = `${S.q.term} · ${S.q.km} km`;
     $("sumS").textContent = S.q.origin;
   }
   renderFilters();
-  const v = visible(), mapped = v.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
-  const showMap = view === "map" && mapped.length > 0;
-  $("discoveryTools").classList.toggle("hidden", !has || render.editing);
-
-  $("overtureCredit").classList.toggle("hidden", S.q?.source !== "overture");
-  $("viewseg").classList.toggle("hidden", !S.items.some(x => Number.isFinite(x.lat)));
+  const v = visible();
+  $("viewseg").classList.toggle("hidden", !hasMap || editing);
   [...$("viewseg").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
   $("mapwrap").classList.toggle("hidden", !showMap);
+  $("list").classList.toggle("hidden", showMap || editing);
   if (showMap) {
+    const mapped = v.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
+    $("mapEmpty").classList.toggle("hidden", mapped.length > 0);
     renderMap(mapped);
-    const sel = mapped.find(x => x.id === mapSel);
-    $("list").innerHTML = sel ? card(sel) : `<p class="maphint">Tippe auf einen Punkt, um die Firma zu sehen.</p>`;
+    const selected = mapped.find(x => x.id === mapSel);
+    $("mapCompanyContent").innerHTML = selected ? card(selected) : "";
+    $("mapCompanyBackdrop").classList.toggle("open", !!selected);
+    $("mapCompanySheet").classList.toggle("open", !!selected);
+    $("list").innerHTML = "";
   } else {
     $("list").innerHTML = v.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
   }
@@ -2252,25 +2292,13 @@ function updateCrawlBtn(done, total){
 }
 function setStatus(t, err){ $("status").textContent = t || ""; $("status").classList.toggle("err", !!err); }
 function statusSummary() {
-  const it = S.items;
-  if (!S.q) return setStatus("");
+  if (!S.q || S.items.length) return setStatus("");
   const coverage = S.q.coverage;
   const unavailable = coverage?.map === "unavailable" && ["outside","unavailable"].includes(coverage.directory);
   const partial = coverage && (coverage.map !== "ready" || ["partial","unavailable"].includes(coverage.directory));
-  if (!it.length) {
-    if (unavailable) return setStatus("Die Firmensuche ist derzeit eingeschränkt. Bitte erneut suchen oder Google Maps öffnen.", true);
-    const note = partial ? " Datenquellen teilweise nicht erreichbar." : "";
-    return setStatus("Keine Treffer in den verfügbaren Verzeichnissen." + note);
-  }
-  const withWebsite = it.filter(x => x.website).length;
-  const withContact = it.filter(x => x.c?.emails?.length || x.c?.person).length;
-  const count = S.q.limited ? it.length + " passendste Treffer" : it.length + " Treffer";
-  const parts = [count, withWebsite + " mit Webseite"];
-  if (withContact) parts.push(withContact + " mit Kontakt von der Webseite");
-  if (coverage?.directory === "ready") parts.push("Deutschland-Verzeichnis durchsucht");
-  if (partial) parts.push("Datenquellen teilweise nicht erreichbar");
-  if (S.q.source === "nominatim") parts.push("über Ausweichserver");
-  setStatus(parts.join(" · "));
+  if (unavailable) return setStatus("Die Firmensuche ist derzeit eingeschränkt. Bitte erneut suchen.", true);
+  const note = partial ? " Datenquellen teilweise nicht erreichbar." : "";
+  setStatus("Keine Treffer in den verfügbaren Verzeichnissen." + note);
 }
 
 /* ---------- Aktionen */
@@ -2294,6 +2322,11 @@ function setTiles(i){
   if ($("tileName")) $("tileName").textContent = t.name;
 }
 let map = null, mapLayer = null, mapSel = null, mapFitKey = "";
+function closeMapCompany(){
+  mapSel = null;
+  render();
+  $("map").focus({preventScroll:true});
+}
 const pinColor = x => isApplied(x) ? "#D6D4E3" : (x.c && x.c.jobs) ? "#0E7C55" : (x.c?.person || emailsOf(x).length || phonesOf(x).length) ? "#4F46E5" : "#9C9AB0";
 function center(){
   if (S.q && S.q.lat != null) return {lat: S.q.lat, lon: S.q.lon};
@@ -2309,20 +2342,29 @@ function renderMap(items){
     map.zoomControl.setPosition("bottomright");
     setTiles(tileIdx);
     mapLayer = L.layerGroup().addTo(map);
-    map.on("click", () => { if (mapSel) { mapSel = null; render(); } });
+    if (window.ResizeObserver) {
+      const resize = new ResizeObserver(() => { if ($("map").clientHeight) map.invalidateSize(); });
+      resize.observe($("map"));
+    }
   }
   const c = center();
   mapLayer.clearLayers();
   const circle = L.circle([c.lat, c.lon], {radius: (S.q ? S.q.km : 5) * 1000, color: "#4F46E5", weight: 2, opacity: .7, fillColor: "#4F46E5", fillOpacity: .06, interactive: false}).addTo(mapLayer);
   L.marker([c.lat, c.lon], {interactive: false, icon: L.divIcon({className: "", html: '<div class="me-pin"></div>', iconSize: [22, 22], iconAnchor: [11, 11]})}).addTo(mapLayer);
   // ausgewaehlte Firma zuletzt zeichnen, damit sie oben liegt
-  items.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon)).sort((a, b) => (a.id === mapSel) - (b.id === mapSel)).forEach(x => {
+  items.sort((a, b) => (a.id === mapSel) - (b.id === mapSel)).forEach(x => {
     const sel = x.id === mapSel;
     const m = L.circleMarker([x.lat, x.lon], {radius: sel ? 11 : 7.5, color: sel ? "#17162B" : "#fff", weight: sel ? 3 : 2, fillColor: pinColor(x), fillOpacity: 1, bubblingMouseEvents: false}).addTo(mapLayer);
-    m.on("click", () => { mapSel = x.id; render(); const el = document.querySelector("#list .card"); if (el) el.scrollIntoView({behavior: "smooth", block: "nearest"}); });
+    m.on("click", () => {
+      mapSel = x.id;
+      render();
+      $("mapCompanySheet").scrollTop = 0;
+      $("mapCompanyClose").focus({preventScroll:true});
+    });
   });
   const key = S.q ? [S.q.term, S.q.addr, S.q.km].join("|") : "";
   setTimeout(() => {
+    if (!$("map").clientHeight) return;
     map.invalidateSize();
     if (mapFitKey !== key) { map.fitBounds(circle.getBounds(), {padding: [8, 8]}); mapFitKey = key; }
   }, 0);
@@ -2330,7 +2372,8 @@ function renderMap(items){
 function setLoading(on, title, sub){
   $("loading").classList.toggle("hidden", !on);
   if (on) {
-    $("discoveryTools").classList.add("hidden"); $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
+    document.documentElement.classList.remove("map-mode");
+    $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
     $("ldT").innerHTML = esc((title || "").replace(/\s*…$/, "")) + '<span class="dots"></span>';
     $("ldS").textContent = sub || "";
   }
@@ -2705,6 +2748,7 @@ async function addWebsite(event) {
     filter = "all"; view = "list"; save(); render(); statusSummary();
     $("websiteForm").reset();
     $("websiteDetails").open = false;
+    if ($("sheet").classList.contains("open")) closeSheet();
     toast("Firma hinzugefügt");
   } catch (_) {
     toast("Die Firmenwebsite konnte nicht durchsucht werden");
@@ -2765,6 +2809,15 @@ function closeMail() {
   $("mailSheet").classList.remove("open");
   document.activeElement?.blur();
   (trigger?.isConnected ? trigger : $("mailInbox")).focus();
+}
+
+function dismissMail() {
+  if (mailView?.view !== "disconnect") return closeMail();
+  if (mailView.connecting) return;
+  mailView.view = "inbox";
+  mailView.error = "";
+  renderMail();
+  $("mailContent").querySelector('[data-mail="disconnect"]')?.focus({preventScroll:true});
 }
 
 function markConfirmedApplications(threads) {
@@ -2917,6 +2970,14 @@ function renderMail() {
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
   $("mailTitle").textContent = state.view === "compose" ? "Bewerbung prüfen" : state.view === "thread" ? (state.thread?.company || "Unterhaltung") : state.view === "connect" ? "E-Mail verbinden" : "Postfach";
+  if (state.view === "disconnect") {
+    $("mailTitle").textContent = "E-Mail trennen?";
+    const disabled = state.connecting ? "disabled" : "";
+    content.innerHTML = `${alert}<p class="mail-disconnect-address">Möchtest du ${esc(state.account.address)} wirklich von JobRadar trennen?</p>
+      <div class="row2"><button class="ghost" type="button" data-mail="cancel-disconnect" ${disabled}>Nein</button>
+      <button class="primary" type="button" data-mail="confirm-disconnect" ${disabled}>Ja</button></div>`;
+    return;
+  }
   if (state.view === "connect") {
     content.innerHTML = `<button type="button" class="link" data-mail="back">Zurück</button>${alert}
       <p>Bestätige die Anmeldung im Browser. Kopiere den Code und füge ihn hier ein.</p>
@@ -2962,7 +3023,7 @@ function renderMail() {
       ${state.threads.map(thread=>`<button class="mail-row" type="button" data-mail="thread" data-thread="${esc(thread.id)}"><strong>${esc(thread.company)}</strong>
         <span>${esc(thread.subject)}</span><span class="${thread.latest_inbound ? "mail-reply" : ""}">${unreadReply(thread) ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : thread.latest_inbound ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen"} · ${mailDate.format(thread.latest_at)}</span></button>`).join("")}
       ${state.threads.length || state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}
-      <div class="mail-actions"><button class="link" type="button" data-mail="disconnect">E-Mail trennen</button></div>`
+      <div class="mail-actions"><button class="link" type="button" data-mail="disconnect" ${state.loading ? "disabled" : ""}>E-Mail trennen</button></div>`
     : state.providers.length ? `<p>Verbinde dein Postfach, um Bewerbungen zu senden und Antworten hier zu sehen.</p><div class="mail-actions">${providerButtons(state)}</div>`
     : state.loading ? "" : '<button class="link" type="button" data-mail="refresh">Erneut versuchen</button>'}`;
 }
@@ -3075,8 +3136,8 @@ async function submitMail(state, reply) {
 }
 
 $("mailInbox").onclick = () => refreshMail(openMail());
-$("mailClose").onclick = $("mailBackdrop").onclick = closeMail;
-$("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); closeMail(); } });
+$("mailClose").onclick = $("mailBackdrop").onclick = dismissMail;
+$("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); dismissMail(); } });
 $("mailContent").onclick = async event => {
   const button = event.target.closest("button[data-mail]");
   const state = mailView;
@@ -3116,13 +3177,25 @@ $("mailContent").onclick = async event => {
     state.attachment = null;
     renderMail();
   } else if (action === "disconnect") {
+    state.view = "disconnect";
+    state.error = "";
+    renderMail();
+    $("mailSheet").scrollTop = 0;
+    $("mailContent").querySelector('[data-mail="cancel-disconnect"]').focus({preventScroll:true});
+  } else if (action === "cancel-disconnect") {
+    dismissMail();
+  } else if (action === "confirm-disconnect") {
     state.connecting = true;
+    state.error = "";
+    renderMail();
     try {
       await mailAPI("disconnect");
       resetMailTracking(false);
       if (mailView !== state) return;
       state.account = null;
       state.threads = [];
+      state.reconnect = false;
+      state.view = "inbox";
     } catch (error) { state.error = mailError(error); }
     finally { state.connecting = false; if (mailView === state) renderMail(); }
   }
@@ -3158,16 +3231,17 @@ $("mailContent").onsubmit = async event => {
 /* ---------- Einstellungen */
 function openSheet(){
   $("tName").value = tpl.name; $("tSubj").value = tpl.subj; $("tBody").value = tpl.body;
+  $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
   $("bd").classList.add("open"); $("sheet").classList.add("open");
 }
 function closeSheet(){ $("bd").classList.remove("open"); $("sheet").classList.remove("open"); document.activeElement && document.activeElement.blur(); }
 window.handleBack = function(){
-  if (mailView) { closeMail(); return true; }
+  if (mailView) { dismissMail(); return true; }
   if (assistant) { closeAssistant(); return true; }
   if ($("sheet").classList.contains("open")) { closeSheet(); return true; }
   if (render.editing && S.q) { render.editing = false; render(); statusSummary(); return true; }
-  if (view === "map" && mapSel) { mapSel = null; render(); return true; }
+  if ($("mapCompanySheet").classList.contains("open")) { closeMapCompany(); return true; }
   return false;
 };
 
@@ -3209,7 +3283,7 @@ $("seg").onclick = e => { const b = e.target.closest("button"); if (!b) return; 
 $("go").onclick = doSearch;
 $("edit").onclick = () => { render.editing = true; render(); setStatus(""); $("b").focus(); };
 $("filters").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; filter = c.dataset.f; render(); };
-$("list").onclick = e => {
+$("list").onclick = $("mapCompanyContent").onclick = e => {
   const b = e.target.closest(".act"); if (!b) return;
   const id = b.closest(".card").dataset.id, x = S.items.find(i => i.id === id);
   if (!x) return;
@@ -3218,16 +3292,19 @@ $("list").onclick = e => {
 };
 $("crawl").onclick = doCrawl;
 $("websiteForm").onsubmit = addWebsite;
-$("webDiscovery").onclick = () => {
-  if (!S.q) return;
-  const profile = specialtyProfile(S.q.term);
-  const phrase = profile?.terms === VISUALIZATION_TERMS ? "3D Visualisierung" : S.q.term;
-  const place = S.q.city || parseAddress(S.q.addr).city || S.q.addr;
-  const query = `${phrase} ${place}`;
-  openUrl("https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query));
-};
+$("mapCompanyBackdrop").onclick = $("mapCompanyClose").onclick = closeMapCompany;
+$("mapCompanySheet").addEventListener("keydown", event => {
+  if (event.key === "Escape") { event.preventDefault(); closeMapCompany(); }
+});
 $("tileBtn").onclick = () => { if (map) { setTiles((tileIdx + 1) % TILES.length); toast("Kartenstil: " + TILES[tileIdx].name); } };
-$("viewseg").onclick = e => { const b = e.target.closest("button"); if (!b) return; view = b.dataset.v; store.set("jr_view", view); render(); };
+$("viewseg").onclick = e => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  view = b.dataset.v;
+  store.set("jr_view", view);
+  render();
+  if (view === "map") window.scrollTo(0,0);
+};
 $("gear").onclick = openSheet;
 $("bd").onclick = closeSheet;
 $("assistantBackdrop").onclick = closeAssistant;
