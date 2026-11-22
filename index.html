@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="24">
+<meta name="jr-version" content="25">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -689,11 +689,18 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .hidden{display:none!important}
 
 /* Kopf */
-.top{display:flex;align-items:center;gap:12px;padding:18px 2px 14px}
+.top{display:flex;align-items:center;gap:8px;padding:18px 2px 14px}
 .logo{width:40px;height:40px;border-radius:12px;background:var(--acc);display:grid;place-items:center;flex:none}
 .logo svg{width:24px;height:24px;stroke:#fff}
 .top h1{font-size:22px;line-height:1.1;margin:0;letter-spacing:-.02em}
 .top p{margin:2px 0 0;color:var(--mute);font-size:13px}
+.top-brand{min-width:0}
+.top-brand p{white-space:nowrap}
+.top-actions{display:flex;align-items:center;gap:7px;margin-left:auto;flex:none}
+.top-actions .icon-btn{margin:0;flex:none}
+.top-actions #gear{width:36px}
+#coachButton{background:var(--acc-soft);color:var(--acc);width:44px;height:44px}
+#coachButton:active{background:var(--line)}
 .icon-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;margin-left:auto;color:var(--mute)}
 .icon-btn:active{background:var(--line)}
 
@@ -861,6 +868,14 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .coach-fact input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:var(--acc)}
 .coach-fact span,.coach-block summary{overflow-wrap:anywhere}
 .coach-fact input[type=text]{margin:5px 0 0}
+.coach-fact-review{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.portrait-source{position:relative;display:inline-flex;align-items:center;min-height:44px;cursor:pointer}
+.portrait-source input[type=file]{position:absolute;inset:0;width:100%;height:100%;padding:0;opacity:0;cursor:pointer}
+.portrait-source:focus-within{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
+.portrait-previews{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:8px 0}
+.portrait-previews figure{min-width:0;margin:0}
+.portrait-previews img{display:block;width:100%;max-height:195px;aspect-ratio:2/3;object-fit:contain;background:var(--card);border-radius:10px;border:1px solid var(--tile-line)}
+.portrait-previews figcaption{color:var(--mute);font-size:12px;margin-top:3px}
 .application-files{margin-top:22px}
 .application-files h3{margin:0 0 4px;font-size:16px}
 .file-slots{display:grid;gap:7px;margin-top:10px}
@@ -894,10 +909,17 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .assistant-nav{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:12px}
 #assistantContent .primary{margin-top:10px}
 .assistant-code{display:block;margin:8px 0;color:var(--ink);overflow-wrap:anywhere;user-select:all}
-.mail-nav{margin-left:auto;display:flex;flex:none;align-items:center;gap:6px;background:var(--acc-soft);color:var(--acc);border-radius:12px;padding:9px 10px;font-size:12px;font-weight:600;min-height:44px}
+.mail-nav{position:relative;display:flex;flex:none;align-items:center;gap:6px;background:var(--acc-soft);color:var(--acc);border-radius:12px;padding:9px 8px;font-size:12px;font-weight:600;min-height:44px}
 .mail-nav svg{width:15px;height:15px}
 .mail-unread{min-width:17px;padding:1px 4px;border-radius:10px;background:var(--acc);color:white;text-align:center}
-.top .mail-nav + .icon-btn{margin-left:0;flex:none}
+@media (max-width:392px){
+  .mail-unread{position:absolute;top:-4px;right:-4px}
+}
+@media (max-width:350px){
+  .top-actions{gap:4px}
+  .mail-nav{width:44px;justify-content:center}
+  .mail-label{display:none}
+}
 .mail-head{position:sticky;top:-10px;background:var(--card);z-index:1;padding:5px 0}
 .mail-rows{display:grid;gap:9px;padding:3px 0 5px}
 .mail-row{display:block;width:100%;text-align:left;padding:11px 12px;background:var(--card);border:1px solid var(--tile-line);border-radius:14px;box-shadow:var(--tile-shadow)}
@@ -948,6 +970,15 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   .map-mode .top,.map-mode .summary,.map-mode .viewseg,.map-mode .filters,.map-mode .dock{grid-column:1}
   .map-mode .banner{grid-area:1 / 1 / 2 / -1}
   .map-mode .top{grid-row:2}
+  .map-mode .top{gap:4px}
+  .map-mode .top-actions{gap:4px}
+  .map-mode .top .logo{width:28px;height:28px;border-radius:9px}
+  .map-mode .top .logo svg{width:18px;height:18px}
+  .map-mode .top h1{font-size:17px}
+  .map-mode .top p{font-size:11px}
+  .map-mode .top #coachButton,.map-mode .top #gear,.map-mode .mail-nav{width:34px;height:34px;min-height:34px;justify-content:center}
+  .map-mode .mail-label{display:none}
+  .map-mode .mail-unread{position:absolute;top:-4px;right:-4px}
   .map-mode .summary{grid-row:3}
   .map-mode .viewseg{grid-row:4}
   .map-mode .filters{grid-row:5;margin-left:0;margin-right:0;padding:0}
@@ -988,9 +1019,12 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 
 <header class="top">
   <div class="logo"><svg><use href="#i-radar"/></svg></div>
-  <div><h1>JobRadar</h1><p>find jobs fast</p></div>
-  <button class="mail-nav" id="mailInbox" type="button"><svg aria-hidden="true"><use href="#i-mail"/></svg>Postfach<span class="mail-unread" id="mailUnread" hidden></span></button>
-  <button class="icon-btn" id="gear" aria-label="Einstellungen"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
+  <div class="top-brand"><h1>JobRadar</h1><p>find jobs fast</p></div>
+  <div class="top-actions">
+    <button class="icon-btn" id="coachButton" type="button" aria-label="AI-Coach"><svg aria-hidden="true"><use href="#i-spark"/></svg></button>
+    <button class="mail-nav" id="mailInbox" type="button" aria-label="Postfach"><svg aria-hidden="true"><use href="#i-mail"/></svg><span class="mail-label">Postfach</span><span class="mail-unread" id="mailUnread" aria-hidden="true" hidden></span></button>
+    <button class="icon-btn" id="gear" aria-label="Einstellungen"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
+  </div>
 </header>
 
 <div class="banner hidden" id="banner"><svg><use href="#i-spark"/></svg><span id="bannerT"></span><button id="bannerB">Installieren</button></div>
@@ -3078,10 +3112,13 @@ async function updateApplicationFile(slot, file) {
       coachProfile.facts = [];
       saveCoachProfile();
     }
+    if (slot.id === "photo") coachPhoto.hasSaved = Boolean(file);
     await renderApplicationFileSlots();
     toast(file ? "Datei gespeichert" : "Datei entfernt");
+    return true;
   } catch (_) {
     toast("Die Unterlagen konnten nicht geändert werden.");
+    return false;
   } finally {
     savingApplicationFile = false;
     controls.forEach(control=>{ control.disabled = false; });
@@ -3110,6 +3147,7 @@ const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",fact
 let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 0;
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
+const coachPhoto = {source:null,sourceURL:"",preview:null,previewURL:"",busy:false,hasSaved:false,message:"",activation:""};
 
 function renderCoach() {
   const box = $("settingsCoach");
@@ -3125,7 +3163,7 @@ function renderCoach() {
     return;
   }
   const entries = coachQuestions.filter(({key})=>coachProfile[key]);
-  const suggestions = coachSuggestions?.length ? `<form id="coachFactsForm" class="coach-block">
+  const suggestions = coachSuggestions?.length ? `<form id="coachFactsForm" class="coach-fact-review">
     <h3 class="coach-title">Fakten prüfen</h3>
     <p class="hint">Bearbeite oder entferne die Vorschläge vor dem Übernehmen.</p>
     ${coachSuggestions.map((fact,index)=>`<div class="coach-fact">
@@ -3154,16 +3192,136 @@ function renderCoach() {
     ${coachProfile.facts.length ? `<details><summary>Freigegebene Fakten (${coachProfile.facts.length})</summary>
       <ul>${coachProfile.facts.map(fact=>`<li>${esc(fact.claim)}</li>`).join("")}</ul>
       <button class="link" type="button" data-coach="edit-facts">Fakten bearbeiten</button></details>` : ""}
-  </section>${suggestions}`;
+    ${suggestions}
+  </section>
+  <section class="coach-block" id="coachPortrait"></section>`;
+  renderCoachPortrait();
 }
 
 async function showCoach() {
   renderCoach();
   const revision = coachCVRevision;
-  const file = await applicationFilesTransaction("readonly",files=>files.get("cv")).catch(()=>null);
+  const [file,photo] = await Promise.all([
+    applicationFilesTransaction("readonly",files=>files.get("cv")).catch(()=>null),
+    applicationFilesTransaction("readonly",files=>files.getKey("photo")).catch(()=>null)
+  ]);
   if (revision !== coachCVRevision) return;
   coachCV = file;
+  coachPhoto.hasSaved = Boolean(photo);
   if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
+}
+
+function renderCoachPortrait() {
+  const tile = $("coachPortrait");
+  if (!tile) return;
+  const {sourceURL,previewURL,busy,hasSaved,message,activation} = coachPhoto;
+  tile.innerHTML = `<h3 class="coach-title">Bewerbungsfoto</h3>
+    <div class="coach-actions">
+      <label class="link portrait-source">Selfie aufnehmen<input type="file" accept="image/*" capture="user" data-coach-photo aria-label="Selfie aufnehmen" ${busy ? "disabled" : ""}></label>
+      <label class="link portrait-source">Foto auswählen<input type="file" accept="image/*" data-coach-photo aria-label="Foto auswählen" ${busy ? "disabled" : ""}></label>
+    </div>
+    ${sourceURL ? `<div class="portrait-previews">
+      <figure><img src="${sourceURL}" alt="Dein ausgewähltes Foto"><figcaption>Original</figcaption></figure>
+      ${previewURL ? `<figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure>` : ""}
+    </div>` : ""}
+    ${busy ? '<p class="hint" role="status">Foto wird verarbeitet …</p>'
+      : previewURL ? `<button class="primary" type="button" data-coach="save-portrait">${hasSaved ? "Vorhandenes Foto ersetzen" : "Als Bewerbungsfoto übernehmen"}</button>`
+      : sourceURL ? '<p class="hint">Dieses Foto wird zur Bearbeitung an OpenAI gesendet.</p><button class="primary" type="button" data-coach="make-portrait">Bewerbungsfoto erstellen</button>' : ""}
+    ${sourceURL && !busy ? '<button class="link" type="button" data-coach="discard-portrait">Verwerfen</button>' : ""}
+    ${message ? `<p class="hint" role="status">${esc(message)}</p>` : ""}
+    ${activation ? `<code class="assistant-code">${esc(activation)}</code><button type="button" class="link" data-coach="share-portrait">Freischaltcode teilen</button>` : ""}`;
+}
+
+function clearPortrait() {
+  for (const url of [coachPhoto.sourceURL,coachPhoto.previewURL]) if (url) URL.revokeObjectURL(url);
+  Object.assign(coachPhoto,{source:null,sourceURL:"",preview:null,previewURL:"",message:"",activation:""});
+}
+
+async function preparePortrait(file) {
+  if (!file || coachPhoto.busy) return;
+  clearPortrait();
+  coachPhoto.busy = true;
+  renderCoachPortrait();
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    if (!image.naturalWidth || !image.naturalHeight) throw Error("invalid_image");
+    const scale = Math.min(1,1024 / Math.max(image.naturalWidth,image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1,Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1,Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d",{alpha:false});
+    context.fillStyle = "#ffffff";
+    context.fillRect(0,0,canvas.width,canvas.height);
+    context.drawImage(image,0,0,canvas.width,canvas.height);
+    const jpeg = await new Promise(resolve=>canvas.toBlob(resolve,"image/jpeg",.88));
+    if (!jpeg || jpeg.size > 1024 * 1024) throw Error("invalid_image");
+    coachPhoto.source = {name:"selfie.jpg",bytes:await jpeg.arrayBuffer()};
+    coachPhoto.sourceURL = URL.createObjectURL(jpeg);
+  } catch (_) {
+    coachPhoto.message = "Das Foto konnte nicht geöffnet werden. Nimm ein neues Selfie auf oder wähle ein JPG- oder PNG-Foto.";
+  } finally {
+    URL.revokeObjectURL(url);
+    coachPhoto.busy = false;
+    renderCoachPortrait();
+  }
+}
+
+async function requestHeadshot() {
+  if (coachPhoto.busy || !coachPhoto.source || coachPhoto.preview) return;
+  coachPhoto.busy = true;
+  coachPhoto.message = "";
+  coachPhoto.activation = "";
+  renderCoachPortrait();
+  try {
+    const phone = await assistantPhone();
+    const {data} = encodeMailFile(coachPhoto.source,true);
+    const params = new URLSearchParams({...phone.credentials,image:data});
+    const result = await request(ASSISTANT_SERVER + "/coach/headshot",{method:"POST",body:params.toString(),timeout:112000,max:2800000});
+    const response = JSON.parse(result.text || "{}");
+    if (result.status === 401) {
+      if (/^[0-9A-F]{8}(?:-[0-9A-F]{8}){3}$/.test(response.activation)) coachPhoto.activation = response.activation;
+      coachPhoto.message = "Dieses Handy braucht eine einmalige KI-Freigabe.";
+    } else if (response.error === "image_access") {
+      coachPhoto.message = "Die Bildfunktion braucht eine Freigabe im OpenAI-Projekt.";
+    } else if (result.status === 429) {
+      coachPhoto.message = "Versuch es in einer Minute erneut.";
+    } else {
+      if (!result.ok || typeof response.image !== "string" || response.image.length > Math.ceil(maxMailFileSize / 3) * 4)
+        throw Error("headshot_unavailable");
+      const bytes = Uint8Array.from(atob(response.image),char=>char.charCodeAt(0));
+      if (bytes.length > maxMailFileSize || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255)
+        throw Error("headshot_unavailable");
+      const preview = new File([bytes],"Bewerbungsfoto.jpg",{type:"image/jpeg"});
+      const url = URL.createObjectURL(preview);
+      const image = new Image();
+      image.src = url;
+      try { await image.decode(); }
+      catch (error) { URL.revokeObjectURL(url); throw error; }
+      coachPhoto.preview = preview;
+      coachPhoto.previewURL = url;
+    }
+  } catch (_) {
+    coachPhoto.message = "Das Bewerbungsfoto konnte nicht erstellt werden. Versuch es erneut.";
+  } finally {
+    coachPhoto.busy = false;
+    renderCoachPortrait();
+  }
+}
+
+async function saveHeadshot() {
+  if (coachPhoto.busy || !coachPhoto.preview) return;
+  coachPhoto.busy = true;
+  renderCoachPortrait();
+  const saved = await updateApplicationFile(applicationFileSlots.find(slot=>slot.id === "photo"),coachPhoto.preview);
+  if (saved) {
+    clearPortrait();
+    coachPhoto.message = "Als Bewerbungsfoto unter Bewerbungsunterlagen gespeichert.";
+  }
+  coachPhoto.busy = false;
+  renderCoachPortrait();
 }
 
 function saveCoachAnswer(answer) {
@@ -3247,7 +3405,15 @@ $("settingsCoach").onclick = event => {
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
     case "share": shareActivationCode(coachActivation); break;
+    case "make-portrait": requestHeadshot(); break;
+    case "save-portrait": saveHeadshot(); break;
+    case "discard-portrait": clearPortrait(); renderCoachPortrait(); break;
+    case "share-portrait": shareActivationCode(coachPhoto.activation); break;
   }
+};
+
+$("settingsCoach").onchange = event => {
+  if (event.target.matches("[data-coach-photo]")) preparePortrait(event.target.files?.[0]);
 };
 
 $("settingsCoach").onsubmit = event => {
@@ -3371,7 +3537,7 @@ function renderMailUnread() {
   const count = mailThreads.filter(unreadReply).length;
   $("mailUnread").hidden = count === 0;
   $("mailUnread").textContent = count > 99 ? "99+" : count;
-  $("mailUnread").setAttribute("aria-label",`${count} ungelesene Antworten`);
+  $("mailInbox").setAttribute("aria-label",count ? `Postfach, ${count} ungelesene Antworten` : "Postfach");
 }
 
 function markThreadRead(id, thread) {
@@ -3858,25 +4024,32 @@ const settingsPages = {
   settingsCoach:"AI-Coach",
   settingsApp:"App-Informationen"
 };
+let settingsEntry = "settingsHome", settingsTrigger = null;
 
 function showSettingsPage(page) {
   for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
   $("settingsTitle").textContent = settingsPages[page];
-  $("settingsBack").classList.toggle("hidden", page === "settingsHome");
+  $("settingsBack").classList.toggle("hidden",page === settingsEntry);
+  $("settingsBack").setAttribute("aria-label",settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
   if (page === "settingsTemplate") {
     $("tName").value = tpl.name;
     $("tSubj").value = tpl.subj;
     $("tBody").value = tpl.body;
     renderApplicationFileSlots();
   }
-  if (page === "settingsCoach") showCoach();
+  if (page === "settingsCoach") {
+    coachQuestion = -1;
+    showCoach();
+  }
   if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
   $("settingsTitle").focus({preventScroll:true});
 }
-function openSheet(){
+function openSheet(entry = "settingsHome", trigger = $("gear")){
+  settingsEntry = entry;
+  settingsTrigger = trigger;
   $("bd").classList.add("open"); $("sheet").classList.add("open");
-  showSettingsPage("settingsHome");
+  showSettingsPage(entry);
 }
 function closeSheet(restoreFocus = true){
   $("bd").classList.remove("open");
@@ -3895,12 +4068,12 @@ function closeSheet(restoreFocus = true){
     renderAssistant();
     return;
   }
-  if (restoreFocus) $("gear").focus({preventScroll:true});
+  if (restoreFocus) (settingsTrigger?.isConnected ? settingsTrigger : $("gear")).focus({preventScroll:true});
 }
 function backInSettings() {
   if (coachResumeAssistant && !$("settingsCoach").classList.contains("hidden")) closeSheet();
   else if (coachResumeAssistant) showSettingsPage("settingsCoach");
-  else if ($("settingsHome").classList.contains("hidden")) showSettingsPage("settingsHome");
+  else if ($(settingsEntry).classList.contains("hidden")) showSettingsPage(settingsEntry);
   else closeSheet();
 }
 function setSearchEditing(editing) {
@@ -3996,7 +4169,8 @@ $("viewseg").onclick = e => {
   render();
   if (view === "map") window.scrollTo(0,0);
 };
-$("gear").onclick = openSheet;
+$("gear").onclick = () => openSheet();
+$("coachButton").onclick = () => openSheet("settingsCoach",$("coachButton"));
 $("bd").onclick = $("settingsClose").onclick = () => closeSheet();
 $("settingsBack").onclick = backInSettings;
 $("sheet").addEventListener("keydown", event => {
