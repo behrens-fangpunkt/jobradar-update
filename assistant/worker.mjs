@@ -143,15 +143,15 @@ async function analyzeCV(file, apiKey) {
 
 const SELFIE_LIMIT = 1024 * 1024;
 const HEADSHOT_LIMIT = 2 * 1024 * 1024;
-const HEADSHOT_PROMPT = `Edit the reference photo into a photorealistic studio portrait for a German job application. Keep the subject's real likeness as the highest priority. Change lighting, background, framing and, if needed, clothing.
+const HEADSHOT_PROMPT = `Create a polished, photorealistic Bewerbungsfoto that looks like a professional photographer made a flattering portrait of this exact person.
 
-Pose and frame: Keep the expression, gaze, and head orientation of the primary photo. Use a natural eye-level crop with both shoulders and comfortable breathing room. Leave out any visible arm reaching for the camera.
+Identity: Use the primary photo for the face, gaze and natural expression. Keep the person's real age, facial proportions, hairline, hairstyle, facial hair, distinctive marks and original glasses if present. Preserve their recognizable features and individual asymmetry. Do not reshape their face, enlarge their eyes or force a smile.
 
-Wardrobe: Use understated business-casual clothing appropriate for an ordinary job application. Keep a suitable plain top if already present. Replace visible sportswear, workout seams, or bold prints with a clean, matte, light neutral knit top or simple collared shirt. Choose one plain garment with realistic fabric texture and no branding.
+Composition and styling: Use an eye-level crop from the upper chest with both shoulders visible and comfortable room above the head and on either side. Keep the head facing the camera and relax or subtly angle the shoulders if consistent with the reference. Keep suitable professional clothing. If needed, use a clean, matte business-casual shirt, fine knit or simple blazer in a color that separates gently from the background. Use realistic fabric and no branding. Leave the selfie arm out of the frame.
 
-Lighting and background: Bright, soft window-style light from slightly off to one side, with gentle fill. Use a clean warm-white or pale stone backdrop with subtle tonal depth. Keep exposure light and even, with soft shadows and an accurate skin tone.
+Light: Use a large, diffuse window or softbox slightly off-camera with gentle fill. Give the face soft shape, with calm highlights and gradual shadows. Use neutral white balance and a softly graded, neutral studio backdrop that separates the person from the background. Avoid a warm color cast, hard shadows and overly contrasty skin detail.
 
-Likeness and finish: Preserve the exact proportions, eye spacing, nose, lips, jaw, ears, hairline, hair, facial hair, age and distinctive marks. Preserve the person's individual asymmetry. Keep the original glasses if the person is wearing them. If the person is not wearing glasses, do not add any. Preserve pores, fine lines, and natural skin color variation. Avoid beautification, face reshaping, glossy skin, heavy blur, text, and borders.`;
+Retouching: Finish it like a natural studio portrait. Gently reduce temporary redness, isolated blemishes, shine and harsh under-eye shadows. Soften the local contrast on pores and fine lines enough that they do not draw attention, while retaining fine skin texture, permanent features and natural color variation. Never add or exaggerate blemishes, lines or unevenness from the references. Keep a restrained matte finish and avoid artificial smoothing, heavy sharpening, glossy skin, text and borders.`;
 const PORTRAIT_ANGLES = ["front","left","right"];
 
 function readSelfie(data) {
