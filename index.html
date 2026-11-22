@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="30">
+<meta name="jr-version" content="31">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -3361,9 +3361,15 @@ let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
-const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:"",androidUpdate:false};
+const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:""};
+const iosPortraitHost = !!window.webkit?.messageHandlers?.jr;
 let portraitCaptureId = 0;
 let pendingPortraitCapture = null;
+
+function canOpenPortraitSource(action) {
+  if (iosPortraitHost) return hasNative && typeof Native[action] === "function";
+  return !hasNative || typeof Native[action] === "function" || Native.nativeVersion() >= 3;
+}
 
 function renderCoach() {
   const box = $("settingsCoach");
@@ -3431,17 +3437,21 @@ async function showCoach() {
 function renderCoachPortrait() {
   const tile = $("coachPortrait");
   if (!tile) return;
-  const {angle,references,previewURL,busy,message,activation,androidUpdate} = coachPhoto;
+  const {angle,references,previewURL,busy,message,activation} = coachPhoto;
   const ready = Object.keys(portraitAngles).every(key=>references[key]);
+  const canCapture = canOpenPortraitSource("takeSelfie");
+  const canPick = canOpenPortraitSource("pickPortraitPhoto");
   tile.innerHTML = `<h3 class="coach-title">Bewerbungsfoto</h3>
     ${savedPortraitURL ? `<figure class="saved-portrait"><img src="${savedPortraitURL}" alt="Gespeichertes Bewerbungsfoto"><figcaption>Gespeichertes Foto</figcaption></figure>` : ""}
+    ${canCapture || canPick ? `
     <p class="hint">Drei Fotos derselben Person. Für links und rechts drehst du den Kopf leicht zur Seite.</p>
     <div class="portrait-angles" aria-label="Aufnahmewinkel">${Object.entries(portraitAngles).map(([key,label])=>`<button type="button" class="portrait-angle" data-coach="portrait-angle" data-angle="${key}" aria-pressed="${key === angle}" ${busy ? "disabled" : ""}>
       ${references[key] ? `<img src="${references[key].url}" alt="">` : ""}${label}${references[key] ? " ✓" : ""}</button>`).join("")}</div>
     <div class="coach-actions">
-      <button class="link portrait-source" type="button" data-coach="capture-portrait" aria-label="Selfie aufnehmen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>
-      <button class="link portrait-source" type="button" data-coach="pick-portrait" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Foto auswählen</button>
-    </div>
+      ${canCapture ? `<button class="link portrait-source" type="button" data-coach="capture-portrait" aria-label="Selfie aufnehmen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>` : ""}
+      ${canPick ? `<button class="link portrait-source" type="button" data-coach="pick-portrait" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Foto auswählen</button>` : ""}
+    </div>` : ""}
+    ${!canCapture || !canPick ? `<p class="hint">Installiere die neue Version der JobRadar-App, um ${canCapture ? "Fotos auszuwählen" : canPick ? "Selfies aufzunehmen" : "Fotos aufzunehmen und auszuwählen"}.</p>` : ""}
     ${previewURL ? `<div class="portrait-previews"><figure><img src="${references.front.url}" alt="Dein Foto von vorne"><figcaption>Frontal</figcaption></figure>
       <figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure></div>` : ""}
     ${busy ? `<p class="hint" role="status">${pendingPortraitCapture ? "Fotoauswahl wird geöffnet …" : "Foto wird verarbeitet …"}</p>`
@@ -3449,21 +3459,18 @@ function renderCoachPortrait() {
       : ready ? '<p class="hint">Alle drei Fotos werden zur Bearbeitung an OpenAI gesendet.</p><button class="primary" type="button" data-coach="make-portrait">Bewerbungsfoto erstellen</button>' : ""}
     ${Object.keys(references).length && !busy ? '<button class="link" type="button" data-coach="discard-portrait">Verwerfen</button>' : ""}
     ${message ? `<p class="hint" role="status">${esc(message)}</p>` : ""}
-    ${androidUpdate ? '<button class="link" type="button" data-coach="photo-android-update">Android-Update öffnen</button>' : ""}
     ${activation ? `<code class="assistant-code">${esc(activation)}</code><button type="button" class="link" data-coach="share-portrait">Freischaltcode teilen</button>` : ""}`;
 }
 
 function clearPortrait() {
   for (const ref of Object.values(coachPhoto.references)) URL.revokeObjectURL(ref.url);
   if (coachPhoto.previewURL) URL.revokeObjectURL(coachPhoto.previewURL);
-  Object.assign(coachPhoto,{angle:"left",references:{},preview:null,previewURL:"",message:"",activation:"",androidUpdate:false});
+  Object.assign(coachPhoto,{angle:"left",references:{},preview:null,previewURL:"",message:"",activation:""});
 }
 
 function openPortraitSource(camera) {
-  if (coachPhoto.busy) return;
   const action = camera ? "takeSelfie" : "pickPortraitPhoto";
-  const ios = !!window.webkit?.messageHandlers?.jr;
-  coachPhoto.androidUpdate = false;
+  if (coachPhoto.busy || !canOpenPortraitSource(action)) return;
   coachPhoto.message = "";
   if (hasNative && typeof Native[action] === "function") {
     const id = ++portraitCaptureId;
@@ -3472,16 +3479,11 @@ function openPortraitSource(camera) {
     renderCoachPortrait();
     try { Native[action](id); }
     catch (_) { window.__jrPortraitPhoto(id,"","Die Fotoauswahl konnte nicht geöffnet werden. Versuch es erneut."); }
-  } else if (!hasNative || (ios ? !camera : Native.nativeVersion() >= 3)) {
+  } else {
     const input = $(camera ? "portraitCapture" : "portraitFile");
     input.dataset.angle = coachPhoto.angle;
     input.value = "";
     input.click();
-  } else {
-    coachPhoto.androidUpdate = !ios;
-    coachPhoto.message = ios ? "Für die Kamera in JobRadar brauchst du die neue iPhone-App. Bis dahin kannst du ein Selfie mit der Kamera-App aufnehmen und hier auswählen."
-      : "Installiere die aktuelle Android-App, um Fotos aufzunehmen oder auszuwählen.";
-    renderCoachPortrait();
   }
 }
 
@@ -3674,7 +3676,6 @@ $("settingsCoach").onclick = event => {
     case "portrait-angle": coachPhoto.angle = button.dataset.angle; renderCoachPortrait(); break;
     case "capture-portrait": openPortraitSource(true); break;
     case "pick-portrait": openPortraitSource(false); break;
-    case "photo-android-update": openUrl("https://github.com/behrens-fangpunkt/JobRadar/actions/workflows/build.yml?query=branch%3Amain"); break;
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
     case "share": shareActivationCode(coachActivation); break;
