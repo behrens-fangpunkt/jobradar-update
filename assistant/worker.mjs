@@ -1,4 +1,5 @@
 import { handleMail } from "./mail.mjs";
+import { fromBase64 } from "./mail-provider.mjs";
 
 const ANSWERS = {
   role: {minijob:"Minijob", werkstudent:"Werkstudentin", teilzeit:"Teilzeit", praktikum:"Praktikum", offen:"offen"},
@@ -136,27 +137,72 @@ async function analyzeCV(file, apiKey) {
   return {facts};
 }
 
+const SELFIE_LIMIT = 1024 * 1024;
+const HEADSHOT_LIMIT = 2 * 1024 * 1024;
+const HEADSHOT_PROMPT = `Edit the supplied selfie into a realistic, understated professional application photo of the same person.
+Preserve the person's identity, facial structure, features, skin tone, apparent age, hair, distinctive features and glasses. Retain real skin texture and the person's existing clothes. Do not beautify, retouch the face, or change their appearance.
+Use a centered head-and-shoulders crop with natural, soft lighting and a plain light gray studio background. Keep it photographic and minimal. Omit text, logos and borders.`;
+
+function readSelfie(form) {
+  const data = form.get("image");
+  if (!data || data.length > Math.ceil(SELFIE_LIMIT / 3) * 4 || data.length % 4 || !/^[A-Za-z0-9_-]+={0,2}$/.test(data)) return null;
+  const bytes = fromBase64(data);
+  return bytes.length <= SELFIE_LIMIT && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? bytes : null;
+}
+
+async function createHeadshot(image, apiKey) {
+  const input = new FormData();
+  for (const [key,value] of Object.entries({
+    model:"gpt-image-1.5",prompt:HEADSHOT_PROMPT,input_fidelity:"high",size:"1024x1536",
+    quality:"medium",background:"opaque",output_format:"jpeg",output_compression:"84",n:"1"
+  })) input.append(key,value);
+  input.append("image",new Blob([image],{type:"image/jpeg"}),"selfie.jpg");
+  const result = await fetch("https://api.openai.com/v1/images/edits",{
+    method:"POST",headers:{Authorization:`Bearer ${apiKey}`},body:input,signal:AbortSignal.timeout(100000)
+  });
+  if (!result.ok) {
+    if (result.status === 401 || result.status === 403) return reply(503,{error:"image_access"});
+    return reply(502,{error:"headshot_unavailable"});
+  }
+  const data = (await result.json()).data?.[0]?.b64_json;
+  if (typeof data !== "string" || data.length > Math.ceil(HEADSHOT_LIMIT / 3) * 4 ||
+      data.length % 4 || !/^\/9j\/[A-Za-z0-9+/]*={0,2}$/.test(data) || fromBase64(data).length > HEADSHOT_LIMIT) {
+    return reply(502,{error:"headshot_unavailable"});
+  }
+  return reply(200,{image:data});
+}
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
     if (path.startsWith("/mail/")) return handleMail(request, env, reply, readForm);
     const analyzing = path === "/coach/cv";
-    if (path !== "/draft" && path !== "/access" && !analyzing) return reply(404, {error:"not_found"});
+    const headshot = path === "/coach/headshot";
+    if (path !== "/draft" && path !== "/access" && !analyzing && !headshot) return reply(404, {error:"not_found"});
     if (request.method !== "POST") return reply(405, {error:"method_not_allowed"});
     if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") {
       return reply(415, {error:"content_type"});
     }
     try {
-      const form = await readForm(request,analyzing ? 2850000 : path === "/draft" ? 20000 : 4096);
+      const limit = analyzing ? 2850000 : headshot ? 1402000 : path === "/draft" ? 20000 : 4096;
+      const form = await readForm(request,limit);
       if (!form) return reply(413, {error:"request_too_large"});
       const fingerprint = await phoneFingerprint(form.get("device"));
       const approved = env.APPROVED_DEVICE_CODES?.toLowerCase().replace(/-/g, "").split(/[\s,]+/) || [];
       const authorized = (fingerprint && approved.includes(fingerprint)) || await validAccessCode(form.get("code"), env.ASSISTANT_CODE);
       if (!authorized) {
-        const activation = (path === "/access" || analyzing) && fingerprint ? fingerprint.match(/.{8}/g).join("-").toUpperCase() : undefined;
+        const activation = (path === "/access" || analyzing || headshot) && fingerprint ? fingerprint.match(/.{8}/g).join("-").toUpperCase() : undefined;
         return reply(401, {error:"access_denied", activation});
       }
       if (path === "/access") return env.OPENAI_API_KEY ? reply(200, {ready:true}) : reply(503, {error:"service_unavailable"});
+      if (headshot) {
+        const image = readSelfie(form);
+        if (!image) return reply(400,{error:"invalid_image"});
+        if (!env.OPENAI_API_KEY) return reply(503,{error:"service_unavailable"});
+        const quota = await env.DRAFT_RATE_LIMITER.limit({key:"coach-headshot:"+(fingerprint || "legacy")});
+        if (!quota.success) return reply(429,{error:"try_again_later"});
+        return await createHeadshot(image,env.OPENAI_API_KEY);
+      }
       if (analyzing) {
         const file = readCV(form);
         if (!file) return reply(400,{error:"invalid_document"});
@@ -174,7 +220,7 @@ export default {
       const draft = await createDraft(facts, env.OPENAI_API_KEY);
       return draft ? reply(200, draft) : reply(502, {error:"draft_unavailable"});
     } catch (_) {
-      return reply(502, {error:analyzing ? "analysis_unavailable" : "draft_unavailable"});
+      return reply(502, {error:headshot ? "headshot_unavailable" : analyzing ? "analysis_unavailable" : "draft_unavailable"});
     }
   }
 };
