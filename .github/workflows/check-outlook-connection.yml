@@ -1,0 +1,42 @@
+name: Check JobRadar Outlook credentials
+
+on:
+  push:
+    branches: [codex/check-outlook-connection]
+    paths: [.github/workflows/check-outlook-connection.yml]
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify the existing Microsoft application credential
+        env:
+          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID }}
+          MICROSOFT_CLIENT_SECRET: ${{ secrets.MICROSOFT_CLIENT_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from urllib.error import HTTPError
+          from urllib.parse import urlencode
+          from urllib.request import Request, urlopen
+
+          body = urlencode({
+              'client_id': os.environ['MICROSOFT_CLIENT_ID'],
+              'client_secret': os.environ['MICROSOFT_CLIENT_SECRET'],
+              'grant_type': 'client_credentials',
+              'scope': 'https://graph.microsoft.com/.default',
+          }).encode()
+          url = 'https://login.microsoftonline.com/a6d546f8-969a-419f-91f4-b2ed501e7e02/oauth2/v2.0/token'
+          request = Request(url, data=body, headers={'Content-Type': 'application/x-www-form-urlencoded'})
+          try:
+              with urlopen(request, timeout=15) as response:
+                  print(f'Microsoft credential check returned HTTP {response.status}.')
+          except HTTPError as error:
+              detail = json.load(error)
+              codes = [str(code) for code in detail.get('error_codes', []) if type(code) is int]
+              raise SystemExit(f'Microsoft credential check returned HTTP {error.code}. Microsoft error codes: {", ".join(codes)}.')
+          PY
