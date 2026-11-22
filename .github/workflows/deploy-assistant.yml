@@ -7,6 +7,10 @@ on:
         description: Phone activation codes, comma-separated. Leave empty to keep current approvals.
         required: false
         type: string
+      skip_ai_test:
+        description: Skip the billable sample draft for mailbox-only deployments.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -87,6 +91,7 @@ jobs:
           preCommands: ${{ vars.MAIL_DATABASE_ID != '' && 'wrangler d1 migrations apply MAIL_DB --remote --config wrangler.deploy.json' || '' }}
           command: deploy --config wrangler.deploy.json --secrets-file ${{ runner.temp }}/jobradar-worker-secrets.json
       - name: Verify a sample AI draft
+        if: ${{ !inputs.skip_ai_test }}
         env:
           WORKER_URL: ${{ steps.worker.outputs.deployment-url }}
           ASSISTANT_CODE: ${{ secrets.ASSISTANT_CODE }}

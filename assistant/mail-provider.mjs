@@ -37,7 +37,7 @@ export function providerConfig(provider, env) {
 }
 
 async function fetchJSON(url, options) {
-  const result = await fetch(url, {...options, redirect:"error", signal:AbortSignal.timeout(8500)});
+  const result = await fetch(url, {...options, redirect:"manual", signal:AbortSignal.timeout(8500)});
   if (!result.ok) {
     let microsoftCode;
     if (new URL(url).hostname === "login.microsoftonline.com") {
