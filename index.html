@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="29">
+<meta name="jr-version" content="30">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -880,6 +880,10 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .portrait-angle{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;min-height:44px;padding:6px;border:1px solid var(--tile-line);border-radius:10px;background:var(--card);font-size:13px;font-weight:600}
 .portrait-angle[aria-pressed="true"]{border-color:var(--acc);color:var(--acc)}
 .portrait-angle img{width:100%;height:70px;object-fit:cover;border-radius:5px}
+.saved-portrait{display:flex;align-items:center;gap:10px;margin:8px 0}
+.saved-portrait figcaption{font-size:13px;color:var(--mute)}
+.saved-portrait img,.file-slot .file-photo{display:block;width:64px;height:84px;object-fit:contain;background:var(--bg);border:1px solid var(--tile-line);border-radius:8px}
+.saved-portrait img{width:86px;height:110px}
 .application-files{margin-top:22px}
 .application-files h3{margin:0 0 4px;font-size:16px}
 .file-slots{display:grid;gap:7px;margin-top:10px}
@@ -1178,6 +1182,8 @@ html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
   </section>
   <section id="settingsDocuments" class="hidden"></section>
   <section id="settingsCoach" class="coach-panel hidden" aria-label="AI-Coach"></section>
+  <input class="hidden" id="portraitCapture" type="file" accept="image/*" capture="user">
+  <input class="hidden" id="portraitFile" type="file" accept="image/*">
   <section id="settingsApp" class="hidden">
     <div class="upd hidden" id="upd">
       <p class="hint" id="verInfo"></p>
@@ -3225,17 +3231,27 @@ const mailFileTypes = {
 };
 const allAttachmentTypes = [...documentTypes,...imageTypes];
 const applicationFileSlots = [
+  {id:"photo",label:"Foto",types:imageTypes},
   {id:"cv",label:"Lebenslauf",types:documentTypes},
   {id:"certificate1",label:"Zeugnis 1",types:allAttachmentTypes},
   {id:"certificate2",label:"Zeugnis 2",types:allAttachmentTypes},
   {id:"certificate3",label:"Zeugnis 3",types:allAttachmentTypes},
-  {id:"photo",label:"Foto",types:imageTypes},
   {id:"letter",label:"Bewerbungsschreiben",types:documentTypes}
 ];
 const maxMailFileSize = 2 * 1024 * 1024;
 const maxMailAttachmentTotal = 8 * 1024 * 1024;
 const fileExtension = name => name.toLowerCase().match(/\.[^.]+$/)?.[0];
 let applicationFilesDB, savingApplicationFile = false;
+let savedPortraitURL = "", savedPortraitRevision = null;
+
+function updateSavedPortraitPreview(file) {
+  if (file?.revision && file.revision === savedPortraitRevision && savedPortraitURL) return;
+  if (savedPortraitURL) URL.revokeObjectURL(savedPortraitURL);
+  savedPortraitRevision = file?.revision || null;
+  savedPortraitURL = file?.bytes ? URL.createObjectURL(new Blob([file.bytes],{
+    type:mailFileTypes[fileExtension(file.name)] || "image/jpeg"
+  })) : "";
+}
 
 function openApplicationFilesDB() {
   applicationFilesDB ||= new Promise((resolve,reject) => {
@@ -3272,11 +3288,13 @@ async function renderApplicationFileSlots() {
   const slots = $("applicationFileSlots");
   try {
     const saved = new Map((await readApplicationFiles()).map(file=>[file.id,file]));
+    updateSavedPortraitPreview(saved.get("photo"));
     status.textContent = "";
     slots.innerHTML = applicationFileSlots.map(slot => {
       const file = saved.get(slot.id);
       const action = file ? "Ersetzen" : "Hinzufügen";
       return `<div class="file-slot">
+        ${slot.id === "photo" && savedPortraitURL ? `<img class="file-photo" src="${savedPortraitURL}" alt="Gespeichertes Bewerbungsfoto">` : ""}
         <div><strong>${slot.label}</strong>${file ? `<small>${esc(file.name)}</small>` : ""}</div>
         <label class="link">${action}<input type="file" data-document-slot="${slot.id}" accept="${slot.types.join(",")}" aria-label="${slot.label} ${action.toLowerCase()}"></label>
         ${file ? `<button type="button" class="icon-btn" data-remove-document="${slot.id}" aria-label="${slot.label} entfernen">${icon("x")}</button>` : ""}
@@ -3308,7 +3326,6 @@ async function updateApplicationFile(slot, file) {
       coachProfile.facts = [];
       saveCoachProfile();
     }
-    if (slot.id === "photo") coachPhoto.hasSaved = Boolean(file);
     await renderApplicationFileSlots();
     toast(file ? "Datei gespeichert" : "Datei entfernt");
     return true;
@@ -3344,8 +3361,9 @@ let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
-const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,hasSaved:false,message:"",activation:""};
+const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:"",androidUpdate:false};
 let portraitCaptureId = 0;
+let pendingPortraitCapture = null;
 
 function renderCoach() {
   const box = $("settingsCoach");
@@ -3402,70 +3420,84 @@ async function showCoach() {
   const revision = coachCVRevision;
   const [file,photo] = await Promise.all([
     applicationFilesTransaction("readonly",files=>files.get("cv")).catch(()=>null),
-    applicationFilesTransaction("readonly",files=>files.getKey("photo")).catch(()=>null)
+    applicationFilesTransaction("readonly",files=>files.get("photo")).catch(()=>null)
   ]);
   if (revision !== coachCVRevision) return;
   coachCV = file;
-  coachPhoto.hasSaved = Boolean(photo);
+  updateSavedPortraitPreview(photo);
   if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
 }
 
 function renderCoachPortrait() {
   const tile = $("coachPortrait");
   if (!tile) return;
-  const {angle,references,previewURL,busy,hasSaved,message,activation} = coachPhoto;
+  const {angle,references,previewURL,busy,message,activation,androidUpdate} = coachPhoto;
   const ready = Object.keys(portraitAngles).every(key=>references[key]);
   tile.innerHTML = `<h3 class="coach-title">Bewerbungsfoto</h3>
+    ${savedPortraitURL ? `<figure class="saved-portrait"><img src="${savedPortraitURL}" alt="Gespeichertes Bewerbungsfoto"><figcaption>Gespeichertes Foto</figcaption></figure>` : ""}
     <p class="hint">Drei Fotos derselben Person. Für links und rechts drehst du den Kopf leicht zur Seite.</p>
     <div class="portrait-angles" aria-label="Aufnahmewinkel">${Object.entries(portraitAngles).map(([key,label])=>`<button type="button" class="portrait-angle" data-coach="portrait-angle" data-angle="${key}" aria-pressed="${key === angle}" ${busy ? "disabled" : ""}>
       ${references[key] ? `<img src="${references[key].url}" alt="">` : ""}${label}${references[key] ? " ✓" : ""}</button>`).join("")}</div>
     <div class="coach-actions">
       <button class="link portrait-source" type="button" data-coach="capture-portrait" aria-label="Selfie aufnehmen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Selfie aufnehmen</button>
-      <input class="hidden" id="portraitCapture" type="file" accept="image/*" capture="user" data-coach-photo="${angle}">
-      <label class="link portrait-source">Foto auswählen<input type="file" accept="image/*" data-coach-photo="${angle}" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}></label>
+      <button class="link portrait-source" type="button" data-coach="pick-portrait" aria-label="Foto auswählen · ${portraitAngles[angle]}" ${busy ? "disabled" : ""}>Foto auswählen</button>
     </div>
     ${previewURL ? `<div class="portrait-previews"><figure><img src="${references.front.url}" alt="Dein Foto von vorne"><figcaption>Frontal</figcaption></figure>
       <figure><img src="${previewURL}" alt="Bearbeitetes Bewerbungsfoto"><figcaption>Vorschau</figcaption></figure></div>` : ""}
-    ${busy ? '<p class="hint" role="status">Foto wird verarbeitet …</p>'
-      : previewURL ? `<button class="primary" type="button" data-coach="save-portrait">${hasSaved ? "Vorhandenes Foto ersetzen" : "Als Bewerbungsfoto übernehmen"}</button>`
+    ${busy ? `<p class="hint" role="status">${pendingPortraitCapture ? "Fotoauswahl wird geöffnet …" : "Foto wird verarbeitet …"}</p>`
+      : previewURL ? `<button class="primary" type="button" data-coach="save-portrait">${savedPortraitURL ? "Vorhandenes Foto ersetzen" : "Als Bewerbungsfoto übernehmen"}</button>`
       : ready ? '<p class="hint">Alle drei Fotos werden zur Bearbeitung an OpenAI gesendet.</p><button class="primary" type="button" data-coach="make-portrait">Bewerbungsfoto erstellen</button>' : ""}
     ${Object.keys(references).length && !busy ? '<button class="link" type="button" data-coach="discard-portrait">Verwerfen</button>' : ""}
     ${message ? `<p class="hint" role="status">${esc(message)}</p>` : ""}
+    ${androidUpdate ? '<button class="link" type="button" data-coach="photo-android-update">Android-Update öffnen</button>' : ""}
     ${activation ? `<code class="assistant-code">${esc(activation)}</code><button type="button" class="link" data-coach="share-portrait">Freischaltcode teilen</button>` : ""}`;
 }
 
 function clearPortrait() {
   for (const ref of Object.values(coachPhoto.references)) URL.revokeObjectURL(ref.url);
   if (coachPhoto.previewURL) URL.revokeObjectURL(coachPhoto.previewURL);
-  Object.assign(coachPhoto,{angle:"left",references:{},preview:null,previewURL:"",message:"",activation:""});
+  Object.assign(coachPhoto,{angle:"left",references:{},preview:null,previewURL:"",message:"",activation:"",androidUpdate:false});
 }
 
-function capturePortrait() {
+function openPortraitSource(camera) {
   if (coachPhoto.busy) return;
-  if (hasNative && typeof Native.takeSelfie === "function") {
+  const action = camera ? "takeSelfie" : "pickPortraitPhoto";
+  const ios = !!window.webkit?.messageHandlers?.jr;
+  coachPhoto.androidUpdate = false;
+  coachPhoto.message = "";
+  if (hasNative && typeof Native[action] === "function") {
+    const id = ++portraitCaptureId;
+    pendingPortraitCapture = {id,angle:coachPhoto.angle};
     coachPhoto.busy = true;
-    coachPhoto.message = "";
     renderCoachPortrait();
-    Native.takeSelfie(++portraitCaptureId);
-  } else if (!hasNative || (!window.webkit?.messageHandlers?.jr && Native.nativeVersion() >= 3)) {
-    $("portraitCapture")?.click();
+    try { Native[action](id); }
+    catch (_) { window.__jrPortraitPhoto(id,"","Die Fotoauswahl konnte nicht geöffnet werden. Versuch es erneut."); }
+  } else if (!hasNative || (ios ? !camera : Native.nativeVersion() >= 3)) {
+    const input = $(camera ? "portraitCapture" : "portraitFile");
+    input.dataset.angle = coachPhoto.angle;
+    input.value = "";
+    input.click();
   } else {
-    coachPhoto.message = "Nutze die Kamera-App und füge das Foto über „Foto auswählen“ hinzu. Direktes Aufnehmen funktioniert mit dem neuen App-Build.";
+    coachPhoto.androidUpdate = !ios;
+    coachPhoto.message = ios ? "Für die Kamera in JobRadar brauchst du die neue iPhone-App. Bis dahin kannst du ein Selfie mit der Kamera-App aufnehmen und hier auswählen."
+      : "Installiere die aktuelle Android-App, um Fotos aufzunehmen oder auszuwählen.";
     renderCoachPortrait();
   }
 }
 
-window.__jrSelfie = (id,data,error) => {
-  if (id !== portraitCaptureId || !coachPhoto.busy) return;
+window.__jrPortraitPhoto = (id,data,error) => {
+  if (id !== pendingPortraitCapture?.id) return;
+  const {angle} = pendingPortraitCapture;
+  pendingPortraitCapture = null;
   coachPhoto.busy = false;
-  if (data) {
+  if (data) try {
     const bytes = Uint8Array.from(atob(data),char=>char.charCodeAt(0));
-    preparePortrait(new Blob([bytes],{type:"image/jpeg"}),coachPhoto.angle);
-  } else {
-    coachPhoto.message = error || "";
-    renderCoachPortrait();
-  }
+    return preparePortrait(new Blob([bytes],{type:"image/jpeg"}),angle);
+  } catch (_) { error = "Das Foto konnte nicht gelesen werden."; }
+  coachPhoto.message = error || "";
+  renderCoachPortrait();
 };
+window.__jrSelfie = window.__jrPortraitPhoto;
 
 async function preparePortrait(file,angle) {
   if (!file || !Object.hasOwn(portraitAngles,angle) || coachPhoto.busy) return;
@@ -3640,7 +3672,9 @@ $("settingsCoach").onclick = event => {
     case "analyze": requestCoachCV(); break;
     case "documents": showSettingsPage("settingsDocuments"); break;
     case "portrait-angle": coachPhoto.angle = button.dataset.angle; renderCoachPortrait(); break;
-    case "capture-portrait": capturePortrait(); break;
+    case "capture-portrait": openPortraitSource(true); break;
+    case "pick-portrait": openPortraitSource(false); break;
+    case "photo-android-update": openUrl("https://github.com/behrens-fangpunkt/JobRadar/actions/workflows/build.yml?query=branch%3Amain"); break;
     case "discard": coachSuggestions = null; renderCoach(); break;
     case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
     case "share": shareActivationCode(coachActivation); break;
@@ -3651,8 +3685,8 @@ $("settingsCoach").onclick = event => {
   }
 };
 
-$("settingsCoach").onchange = event => {
-  if (event.target.matches("[data-coach-photo]")) preparePortrait(event.target.files?.[0],event.target.dataset.coachPhoto);
+$("portraitCapture").onchange = $("portraitFile").onchange = event => {
+  preparePortrait(event.target.files?.[0],event.target.dataset.angle);
 };
 
 $("settingsCoach").onsubmit = event => {
