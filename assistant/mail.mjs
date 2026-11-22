@@ -38,10 +38,20 @@ async function unseal(env, owner, account) {
   return JSON.parse(decoder.decode(clear));
 }
 
-function finishPage(code) {
+function finishPage(code, failure = "session", error) {
+  const failures = {
+    session:"Diese Anmeldung ist abgelaufen oder wurde bereits verwendet. Starte die Verbindung in JobRadar erneut.",
+    cancelled:"Die Anmeldung wurde nicht bestätigt. Starte die Verbindung in JobRadar erneut und erlaube den Zugriff auf dein Postfach.",
+    token:"Der E-Mail-Dienst konnte die Anmeldung nicht abschließen.",
+    mailbox:"JobRadar konnte das Postfach für dieses Konto nicht ermitteln.",
+    save:"JobRadar konnte die Verbindung zum Postfach nicht speichern.",
+    service:"Die E-Mail-Verbindung ist gerade nicht verfügbar."
+  };
+  const providerStatus = error instanceof ProviderError ? ` · HTTP ${error.status}` : "";
+  const microsoftCode = error instanceof ProviderError && error.microsoftCode ? ` · AADSTS${error.microsoftCode}` : "";
   const instructions = code
     ? '<p>Kopiere den Code, wechsle zu JobRadar zurück und füge ihn dort ein.</p><input type="text" id="code" aria-label="Bestätigungscode" readonly value="' + code + '"><button type="button" id="copy">Code kopieren</button><p id="status" role="status"></p>'
-    : '<p>Die Anmeldung konnte nicht abgeschlossen werden. Öffne JobRadar und starte die Verbindung erneut.</p>';
+    : `<p>${failures[failure]}</p><p>Fehlerkennung: ${failure}${providerStatus}${microsoftCode}</p>`;
   return new Response('<!DOCTYPE html><html lang="de"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
     '<title>JobRadar · E-Mail verbinden</title><style>body{font:17px system-ui;background:#f6f5fb;color:#17162b;margin:0;padding:24px}main{max-width:460px;margin:6vh auto}input,button{padding:12px;margin:8px 0;font:inherit;width:100%;box-sizing:border-box;border-radius:10px}input{border:1px solid #777}button{background:#4f46e5;color:white;border:0}</style>' +
     '<main><h1>JobRadar</h1>' + instructions + '</main>' + (code ? '<script>document.getElementById("copy").onclick=async()=>{const input=document.getElementById("code");try{await navigator.clipboard.writeText(input.value);document.getElementById("status").textContent="Kopiert. Öffne jetzt JobRadar."}catch{input.select()}};</script>' : '') + '</html>',
@@ -71,18 +81,27 @@ async function completeOAuth(env, provider, url) {
   const config = providerConfig(provider,env);
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");
-  if (!config || !state || !code || !/^[A-Za-z0-9_-]{43}$/.test(state)) return finishPage();
+  if (!config) return finishPage(null,"service");
+  if (url.searchParams.get("error") === "access_denied") return finishPage(null,"cancelled");
+  if (!state || !code || !/^[A-Za-z0-9_-]{43}$/.test(state)) return finishPage();
   const key = await hash(state);
   const claimed = await query(env.MAIL_DB,"UPDATE mail_connections SET claimed=1 WHERE state=? AND provider=? AND expires>? AND claimed=0 RETURNING owner,verifier",key,provider,Date.now()).first();
   if (!claimed) return finishPage();
-  const tokens = await tokenGrant(config,{grant_type:"authorization_code",code,redirect_uri:callback(provider),code_verifier:claimed.verifier});
-  const address = await mailboxAddress(provider,tokens.access);
-  if (!validAddress(address)) return finishPage();
-  const confirmation = random(18);
-  const encrypted = await seal(env,claimed.owner,{provider,address},tokens);
-  const saved = await query(env.MAIL_DB,"UPDATE mail_connections SET confirmation=?,address=?,tokens=?,verifier='' WHERE state=? AND expires>? RETURNING owner",
-    await hash(confirmation),address,encrypted,key,Date.now()).first();
-  return finishPage(saved ? confirmation : null);
+  let stage = "token";
+  try {
+    const tokens = await tokenGrant(config,{grant_type:"authorization_code",code,redirect_uri:callback(provider),code_verifier:claimed.verifier});
+    stage = "mailbox";
+    const address = await mailboxAddress(provider,tokens.access);
+    if (!validAddress(address)) return finishPage(null,stage);
+    stage = "save";
+    const confirmation = random(18);
+    const encrypted = await seal(env,claimed.owner,{provider,address},tokens);
+    const saved = await query(env.MAIL_DB,"UPDATE mail_connections SET confirmation=?,address=?,tokens=?,verifier='' WHERE state=? AND expires>? RETURNING owner",
+      await hash(confirmation),address,encrypted,key,Date.now()).first();
+    return saved ? finishPage(confirmation) : finishPage();
+  } catch (error) {
+    return finishPage(null,stage,error);
+  }
 }
 
 async function confirmConnection(env, owner, code) {
@@ -226,7 +245,7 @@ export async function handleMail(request, env, reply, readForm) {
   const url = new URL(request.url), path = url.pathname;
   try {
     if (request.method === "GET" && path.startsWith("/mail/callback/")) {
-      return env.MAIL_DB ? await completeOAuth(env,path.split("/").at(-1),url) : finishPage();
+      return env.MAIL_DB ? await completeOAuth(env,path.split("/").at(-1),url) : finishPage(null,"service");
     }
     if (request.method !== "POST") return reply(405,{error:"method_not_allowed"});
     if (request.headers.get("Content-Type")?.split(";")[0] !== "application/x-www-form-urlencoded") return reply(415,{error:"content_type"});
@@ -275,7 +294,7 @@ export async function handleMail(request, env, reply, readForm) {
     }
     return reply(200,await sendDraft(env,owner,account,access,form,thread));
   } catch (error) {
-    if (request.method === "GET") return finishPage();
+    if (request.method === "GET") return finishPage(null,"service");
     if (error instanceof MailError) return reply(error.status,{error:error.reason});
     if (error instanceof ProviderError && error.status === 401) return reply(401,{error:"mail_reconnect"});
     return reply(502,{error:"mail_provider_error"});
