@@ -139,9 +139,13 @@ async function analyzeCV(file, apiKey) {
 
 const SELFIE_LIMIT = 1024 * 1024;
 const HEADSHOT_LIMIT = 2 * 1024 * 1024;
-const HEADSHOT_PROMPT = `Edit the supplied selfie into a realistic, understated professional application photo of the same person.
-Preserve the person's identity, facial structure, features, skin tone, apparent age, hair, distinctive features and glasses. Retain real skin texture and the person's existing clothes. Do not beautify, retouch the face, or change their appearance.
-Use a centered head-and-shoulders crop with natural, soft lighting and a plain light gray studio background. Keep it photographic and minimal. Omit text, logos and borders.`;
+const HEADSHOT_PROMPT = `Make a restrained photographic edit of this selfie for a German job application. Keep the person recognizable at a glance. Limit the edit to the background, gentle overall lighting and color correction, and framing.
+
+Preserve the person's identity and actual appearance: face shape, proportions, expression, gaze, apparent age, skin tone, hairline, hairstyle, facial hair, and distinctive marks. Preserve the clothing and accessories visible in the selfie. Keep the original glasses if the person is wearing them. If the person is not wearing glasses, do not add any. Do not invent jewelry, makeup, or other accessories.
+
+Use a simple vertical head-and-shoulders composition with a little space above the hair and both shoulders visible where the source framing allows. Replace the surroundings with a plain, very light neutral gray backdrop. Aim for the even exposure of a portrait taken beside a large window: broad, soft light, neutral white balance, and gentle natural shadows. Keep eyes and hair clear, with highlights that retain detail.
+
+Keep real pores, fine lines, and natural skin color variation. Avoid skin smoothing, beauty retouching, eye whitening, waxy highlights, artificial sharpness, HDR, dramatic rim light, and heavy blur. The finished image should look like a straightforward photograph, with no added text or border.`;
 
 function readSelfie(form) {
   const data = form.get("image");
@@ -153,8 +157,8 @@ function readSelfie(form) {
 async function createHeadshot(image, apiKey) {
   const input = new FormData();
   for (const [key,value] of Object.entries({
-    model:"gpt-image-1.5",prompt:HEADSHOT_PROMPT,input_fidelity:"high",size:"1024x1536",
-    quality:"medium",background:"opaque",output_format:"jpeg",output_compression:"84",n:"1"
+    model:"gpt-image-2.6-sunburst",prompt:HEADSHOT_PROMPT,size:"1024x1536",
+    quality:"medium",output_format:"jpeg",output_compression:"90",n:"1"
   })) input.append(key,value);
   input.append("image",new Blob([image],{type:"image/jpeg"}),"selfie.jpg");
   const result = await fetch("https://api.openai.com/v1/images/edits",{
