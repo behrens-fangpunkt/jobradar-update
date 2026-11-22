@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="23">
+<meta name="jr-version" content="24">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -843,6 +843,24 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .settings-row svg{color:var(--acc)}
 .settings-row svg:last-child{margin-left:auto;width:16px;height:16px;color:var(--mute)}
 .settings-version{margin-top:6px;color:var(--mute);font-size:13px}
+.coach-panel{display:grid;gap:12px}
+.coach-title{margin:0;font-size:16px}
+.coach-block{padding:12px;background:var(--bg);border:1px solid var(--tile-line);border-radius:14px}
+.coach-block .hint{margin:6px 0}
+.coach-profile{display:grid;gap:5px;margin:0}
+.coach-profile div{display:flex;flex-wrap:wrap;gap:4px 12px;justify-content:space-between}
+.coach-profile dt{color:var(--mute);font-size:13px}
+.coach-profile dd{margin:0;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.coach-bubble{margin:0;padding:10px 12px;border-radius:12px;background:var(--bg);overflow-wrap:anywhere}
+.coach-answer{margin-left:28px;background:var(--acc-soft)}
+.coach-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
+.coach-actions .chip{white-space:normal}
+.coach-panel .primary{margin-top:6px}
+.coach-fact{margin:9px 0;padding-top:9px;border-top:1px solid var(--line)}
+.coach-fact label{display:flex;align-items:center;gap:8px}
+.coach-fact input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:var(--acc)}
+.coach-fact span,.coach-block summary{overflow-wrap:anywhere}
+.coach-fact input[type=text]{margin:5px 0 0}
 .application-files{margin-top:22px}
 .application-files h3{margin:0 0 4px;font-size:16px}
 .file-slots{display:grid;gap:7px;margin-top:10px}
@@ -1077,7 +1095,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
       <div id="applicationFileSlots" class="file-slots"></div>
     </section>
   </section>
-  <section id="settingsCoach" class="hidden"><p class="hint">Demnächst verfügbar.</p></section>
+  <section id="settingsCoach" class="coach-panel hidden" aria-label="AI-Coach"></section>
   <section id="settingsApp" class="hidden">
     <div class="upd hidden" id="upd">
       <p class="hint" id="verInfo"></p>
@@ -2732,6 +2750,11 @@ let assistant = null;
 
 function savedApplicationAnswers(industry) {
   const profile = store.get("jr_application_profile", null);
+  if (coachProfile.ready) {
+    const role = Object.entries(APPLICATION_QUESTIONS[0].options).find(([,label])=>norm(label) === norm(coachProfile.role))?.[0] || "offen";
+    const experience = profile?.experience?.[norm(industry)] || "skip";
+    return {role,experience,time:"skip",strength:profile?.strength || "skip"};
+  }
   if (!profile) return null;
   const scope = norm(industry);
   const experience = scope && profile.experience && Object.hasOwn(profile.experience, scope) ? profile.experience[scope] : "skip";
@@ -2759,6 +2782,15 @@ async function assistantPhone() {
     if (digest) activation = hex(new Uint8Array(digest).slice(0,16)).match(/.{8}/g).join("-").toUpperCase();
   }
   return {url:ASSISTANT_SERVER + "/draft", credentials:{device}, activation};
+}
+
+async function shareActivationCode(code) {
+  if (!code) return;
+  if (window.Native?.share) Native.share(code);
+  else {
+    try { await navigator.clipboard.writeText(code); toast("Freischaltcode kopiert"); }
+    catch (_) { toast("Halte den Freischaltcode zum Kopieren gedrückt."); }
+  }
 }
 
 async function checkAssistantAccess(state) {
@@ -2825,6 +2857,14 @@ function templateDraft(x, answers) {
 }
 async function aiDraft(config, x, industry, answers) {
   const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
+  const target = [coachProfile.role,coachProfile.goal].filter(Boolean).join(" · ").slice(0,160);
+  if (target) input.set("goal",target);
+  if (coachProfile.availability) input.set("availability",coachProfile.availability.slice(0,160));
+  if (coachProfile.tone) input.set("tone",coachProfile.tone.slice(0,160));
+  const terms = new Set(searchText(x.name + " " + industry).split(/\W+/).filter(word=>word.length > 3));
+  const facts = coachProfile.facts.map(fact=>({claim:fact.claim,score:searchText(fact.claim).split(/\W+/).filter(word=>terms.has(word)).length}));
+  facts.sort((a,b)=>b.score-a.score);
+  for (const {claim} of facts.slice(0,4)) input.append("profile_fact",claim);
   const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
   if (!reply.ok) return null;
   const parsed = JSON.parse(reply.text);
@@ -3031,6 +3071,13 @@ async function updateApplicationFile(slot, file) {
     await applicationFilesTransaction("readwrite",files=>file
       ? files.put(entry)
       : files.delete(slot.id));
+    if (slot.id === "cv") {
+      coachCVRevision++;
+      coachCV = null;
+      coachSuggestions = null;
+      coachProfile.facts = [];
+      saveCoachProfile();
+    }
     await renderApplicationFileSlots();
     toast(file ? "Datei gespeichert" : "Datei entfernt");
   } catch (_) {
@@ -3050,6 +3097,172 @@ $("applicationFileSlots").onchange = event => {
 $("applicationFileSlots").onclick = event => {
   const button = event.target.closest("button[data-remove-document]");
   if (button) updateApplicationFile(applicationFileSlots.find(slot=>slot.id === button.dataset.removeDocument));
+};
+
+/* ---------- AI-Coach ---------- */
+const coachQuestions = [
+  {key:"role",label:"Arbeitsform",question:"Welche Art von Stelle suchst du?",choices:["Minijob","Werkstudentin","Teilzeit","Praktikum","Vollzeit"]},
+  {key:"goal",label:"Suchziel",question:"Welche Tätigkeit oder Branche interessiert dich?",choices:[]},
+  {key:"availability",label:"Verfügbarkeit",question:"Wann oder wie viel kannst du arbeiten?",choices:["Nachmittags","Am Wochenende","Flexibel"],optional:true},
+  {key:"tone",label:"Schreibstil",question:"Wie sollen deine Bewerbungen klingen?",choices:["Kurz und direkt","Freundlich","Formell"],optional:true}
+];
+const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",facts:[],ready:false},store.get("jr_coach_profile",null));
+let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 0;
+let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
+const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
+
+function renderCoach() {
+  const box = $("settingsCoach");
+  if (coachQuestion >= 0) {
+    const {key,question,choices,optional} = coachQuestions[coachQuestion];
+    box.innerHTML = `${coachLastAnswer ? `<p class="coach-bubble coach-answer">${esc(coachLastAnswer)}</p>` : ""}
+      <p class="coach-bubble" role="status">${question}</p>
+      <div class="coach-actions">${choices.map(choice=>`<button class="chip" type="button" data-coach-answer="${esc(choice)}">${esc(choice)}</button>`).join("")}</div>
+      <form id="coachAnswerForm"><label class="lbl" for="coachAnswer">Deine Antwort</label>
+        <input id="coachAnswer" value="${esc(coachProfile[key])}" maxlength="160" required>
+        <button type="submit" class="primary">Weiter</button></form>
+      ${optional ? '<button class="link" data-coach="skip" type="button">Überspringen</button>' : ""}`;
+    return;
+  }
+  const entries = coachQuestions.filter(({key})=>coachProfile[key]);
+  const suggestions = coachSuggestions?.length ? `<form id="coachFactsForm" class="coach-block">
+    <h3 class="coach-title">Fakten prüfen</h3>
+    <p class="hint">Bearbeite oder entferne die Vorschläge vor dem Übernehmen.</p>
+    ${coachSuggestions.map((fact,index)=>`<div class="coach-fact">
+      <label><input type="checkbox" name="accept${index}" checked>
+        <span>Lebenslauf${fact.page ? `, Seite ${esc(fact.page)}` : ""}</span></label>
+      <p class="hint">„${esc(fact.evidence)}“</p>
+      <input type="text" name="claim${index}" maxlength="180" aria-label="Fakt ${index+1}" value="${esc(fact.claim)}">
+    </div>`).join("")}
+    <button class="primary" type="submit">Fakten übernehmen</button>
+    <button class="link" type="button" data-coach="discard">Verwerfen</button>
+  </form>` : "";
+  box.innerHTML = `<section class="coach-block">
+    <h3 class="coach-title">Suchprofil</h3>
+    ${entries.length ? `<dl class="coach-profile">${entries.map(({key,label})=>`<div><dt>${label}</dt><dd>${esc(coachProfile[key])}</dd></div>`).join("")}</dl>` : ""}
+    <div class="coach-actions"><button class="link" type="button" data-coach="guide">${coachProfile.ready ? "Profil ändern" : "Profil erstellen"}</button>
+    ${coachProfile.goal ? '<button class="link" type="button" data-coach="search">Suche starten</button>' : ""}</div>
+  </section>
+  <section class="coach-block">
+    <h3 class="coach-title">Lebenslauf</h3>
+    ${coachCV ? `<p class="hint">Zur Auswertung wird „${esc(coachCV.name)}“ an OpenAI gesendet.</p>
+      <button class="ghost" type="button" data-coach="analyze" ${coachBusy || coachSuggestions?.length ? "disabled" : ""}>${coachBusy ? "Wird ausgewertet …" : "Lebenslauf auswerten"}</button>`
+    : '<button class="link" type="button" data-coach="add-cv">Lebenslauf hinzufügen</button>'}
+    ${coachMessage ? `<p class="hint" role="status">${esc(coachMessage)}</p>` : ""}
+    ${coachActivation ? `<code class="assistant-code">${esc(coachActivation)}</code>
+      <button class="link" type="button" data-coach="share">Freischaltcode teilen</button>` : ""}
+    ${coachProfile.facts.length ? `<details><summary>Freigegebene Fakten (${coachProfile.facts.length})</summary>
+      <ul>${coachProfile.facts.map(fact=>`<li>${esc(fact.claim)}</li>`).join("")}</ul>
+      <button class="link" type="button" data-coach="edit-facts">Fakten bearbeiten</button></details>` : ""}
+  </section>${suggestions}`;
+}
+
+async function showCoach() {
+  renderCoach();
+  const revision = coachCVRevision;
+  const file = await applicationFilesTransaction("readonly",files=>files.get("cv")).catch(()=>null);
+  if (revision !== coachCVRevision) return;
+  coachCV = file;
+  if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
+}
+
+function saveCoachAnswer(answer) {
+  const value = answer.trim().slice(0,160), step = coachQuestions[coachQuestion];
+  if (!step || (!value && !step.optional)) return;
+  coachProfile[step.key] = value;
+  coachLastAnswer = value;
+  coachQuestion++;
+  if (coachQuestion >= coachQuestions.length) {
+    coachQuestion = -1;
+    coachProfile.ready = true;
+    toast("Suchprofil gespeichert");
+  }
+  saveCoachProfile();
+  renderCoach();
+}
+
+async function requestCoachCV() {
+  if (coachBusy || !coachCV) return;
+  coachBusy = true;
+  coachMessage = "";
+  coachActivation = "";
+  const revision = coachCVRevision, file = coachCV;
+  renderCoach();
+  try {
+    const phone = await assistantPhone();
+    const {name,data} = encodeMailFile(file,true);
+    const params = new URLSearchParams({...phone.credentials,filename:name,document:data});
+    const result = await request(ASSISTANT_SERVER + "/coach/cv",{method:"POST",body:params.toString(),timeout:52000,max:12000});
+    if (revision !== coachCVRevision) return;
+    const response = JSON.parse(result.text || "{}");
+    if (result.status === 401) {
+      if (/^[0-9A-F]{8}(?:-[0-9A-F]{8}){3}$/.test(response.activation)) coachActivation = response.activation;
+      coachMessage = "Dieses Handy braucht eine einmalige KI-Freigabe.";
+    } else if (result.ok && Array.isArray(response.facts)) {
+      coachSuggestions = response.facts;
+      if (!coachSuggestions.length) coachMessage = "Im Lebenslauf wurden keine belegten Bewerbungsfakten erkannt.";
+    } else {
+      coachMessage = result.status === 429 ? "Versuch es in einer Minute erneut." : "Der Lebenslauf konnte nicht ausgewertet werden. Versuch es erneut.";
+    }
+  } catch (_) {
+    if (revision === coachCVRevision) coachMessage = "Der Lebenslauf konnte nicht ausgewertet werden. Versuch es erneut.";
+  } finally {
+    coachBusy = false;
+    if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
+  }
+}
+
+function searchFromCoach() {
+  if (!coachProfile.goal) return;
+  coachResumeAssistant = null;
+  closeSheet();
+  $("b").value = coachProfile.goal;
+  renderChips();
+  if ($("a").value.trim()) doSearch();
+  else {
+    if (S.q) setSearchEditing(true);
+    $("a").focus();
+  }
+}
+
+$("settingsCoach").onclick = event => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  if (button.dataset.coachAnswer) return saveCoachAnswer(button.dataset.coachAnswer);
+  switch (button.dataset.coach) {
+    case "guide": {
+      const unanswered = coachQuestions.findIndex(({key,optional})=>!optional && !coachProfile[key]);
+      coachQuestion = unanswered < 0 ? 0 : unanswered;
+      coachLastAnswer = "";
+      renderCoach();
+      break;
+    }
+    case "skip": saveCoachAnswer(""); break;
+    case "search": searchFromCoach(); break;
+    case "analyze": requestCoachCV(); break;
+    case "add-cv":
+      showSettingsPage("settingsTemplate");
+      $("applicationFilesTitle").scrollIntoView({block:"start"});
+      break;
+    case "discard": coachSuggestions = null; renderCoach(); break;
+    case "edit-facts": coachSuggestions = coachProfile.facts; renderCoach(); break;
+    case "share": shareActivationCode(coachActivation); break;
+  }
+};
+
+$("settingsCoach").onsubmit = event => {
+  event.preventDefault();
+  if (event.target.id === "coachAnswerForm") return saveCoachAnswer($("coachAnswer").value);
+  if (event.target.id !== "coachFactsForm" || !coachSuggestions) return;
+  const values = new FormData(event.target);
+  coachProfile.facts = coachSuggestions.flatMap((fact,index)=>{
+    const claim = String(values.get("claim"+index) || "").trim().slice(0,180);
+    return values.has("accept"+index) && claim ? [{...fact,claim}] : [];
+  });
+  saveCoachProfile();
+  coachSuggestions = null;
+  coachMessage = "Freigegebene Fakten gespeichert.";
+  renderCoach();
 };
 
 /* ---------- Bewerbungen per E-Mail ---------- */
@@ -3656,6 +3869,7 @@ function showSettingsPage(page) {
     $("tBody").value = tpl.body;
     renderApplicationFileSlots();
   }
+  if (page === "settingsCoach") showCoach();
   if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
   $("settingsTitle").focus({preventScroll:true});
@@ -3668,10 +3882,25 @@ function closeSheet(restoreFocus = true){
   $("bd").classList.remove("open");
   $("sheet").classList.remove("open");
   document.activeElement?.blur();
+  if (coachResumeAssistant && restoreFocus) {
+    assistant = coachResumeAssistant;
+    coachResumeAssistant = null;
+    const answers = savedApplicationAnswers(assistant.industry);
+    if (answers) {
+      assistant.answers = answers;
+      assistant.step = APPLICATION_QUESTIONS.length;
+    }
+    $("assistantBackdrop").classList.add("open");
+    $("assistantSheet").classList.add("open");
+    renderAssistant();
+    return;
+  }
   if (restoreFocus) $("gear").focus({preventScroll:true});
 }
 function backInSettings() {
-  if ($("settingsHome").classList.contains("hidden")) showSettingsPage("settingsHome");
+  if (coachResumeAssistant && !$("settingsCoach").classList.contains("hidden")) closeSheet();
+  else if (coachResumeAssistant) showSettingsPage("settingsCoach");
+  else if ($("settingsHome").classList.contains("hidden")) showSettingsPage("settingsHome");
   else closeSheet();
 }
 function setSearchEditing(editing) {
@@ -3813,22 +4042,20 @@ $("assistantContent").onclick = async e => {
     assistant.step--;
     renderAssistant();
   } else if (button.dataset.ass === "answers") {
-    assistant.draft = null;
-    assistant.step = 0;
-    assistant.autoDraft = true;
-    renderAssistant();
+    if (assistant.draft) {
+      assistant.draft.subject = $("draftSubject").value;
+      assistant.draft.body = $("draftBody").value;
+    }
+    coachResumeAssistant = assistant;
+    closeAssistant(false);
+    openSheet();
+    showSettingsPage("settingsCoach");
   } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
     await generateAssistantDraft(button.dataset.ass === "ai");
   } else if (button.dataset.ass === "recheck") {
     await checkAssistantAccess(assistant);
   } else if (button.dataset.ass === "share-code") {
-    const code = assistant.config?.activation;
-    if (!code) return;
-    if (window.Native && Native.share) Native.share(code);
-    else {
-      try { await navigator.clipboard.writeText(code); toast("Freischaltcode kopiert"); }
-      catch (_) { toast("Halte den Freischaltcode zum Kopieren gedrückt."); }
-    }
+    await shareActivationCode(assistant.config?.activation);
   } else if (button.dataset.ass === "mail") {
     const mail = emailsOf(assistant.x)[0];
     if (mail) await openMailDraft(assistant.x, mail, $("draftSubject").value, $("draftBody").value,assistant.batch);
