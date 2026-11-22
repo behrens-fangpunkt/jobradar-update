@@ -158,7 +158,7 @@ function draftAttachments(form, multiple) {
     return data ? [attachmentFrom(form.get("filename"),form.get("filetype"),data)] : [];
   }
   const entries = form.getAll("files");
-  if (!entries.length || entries.length > 6) throw new MailError(400,"invalid_attachment_count");
+  if (!entries.length || entries.length > 7) throw new MailError(400,"invalid_attachment_count");
   let total = 0;
   return entries.map(entry => {
     let file;
