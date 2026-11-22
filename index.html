@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="17">
+<meta name="jr-version" content="18">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -837,7 +837,9 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .assistant-nav{display:flex;gap:8px;justify-content:space-between;align-items:center;margin-top:12px}
 #assistantContent .primary{margin-top:10px}
 .assistant-code{display:block;margin:8px 0;color:var(--ink);overflow-wrap:anywhere;user-select:all}
-.mail-nav{margin-left:auto;background:var(--acc-soft);color:var(--acc);border-radius:12px;padding:9px 10px;font-size:12px;font-weight:600;min-height:44px}
+.mail-nav{margin-left:auto;display:flex;flex:none;align-items:center;gap:6px;background:var(--acc-soft);color:var(--acc);border-radius:12px;padding:9px 10px;font-size:12px;font-weight:600;min-height:44px}
+.mail-nav svg{width:15px;height:15px}
+.mail-unread{min-width:17px;padding:1px 4px;border-radius:10px;background:var(--acc);color:white;text-align:center}
 .top .mail-nav + .icon-btn{margin-left:0;flex:none}
 .mail-head{position:sticky;top:-10px;background:var(--card);z-index:1;padding:5px 0}
 .mail-head h2{overflow-wrap:anywhere}
@@ -898,7 +900,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 <header class="top">
   <div class="logo"><svg><use href="#i-radar"/></svg></div>
   <div><h1>JobRadar</h1><p>Nebenjobs in deiner Nähe</p></div>
-  <button class="mail-nav" id="mailInbox" type="button">Bewerbungen</button>
+  <button class="mail-nav" id="mailInbox" type="button"><svg aria-hidden="true"><use href="#i-mail"/></svg>Postfach<span class="mail-unread" id="mailUnread" hidden></span></button>
   <button class="icon-btn" id="gear" aria-label="Bewerbungstext"><svg><use href="#i-gear"/></svg></button>
 </header>
 
@@ -1002,7 +1004,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 <section class="sheet" id="mailSheet" role="dialog" aria-modal="true" aria-labelledby="mailTitle">
   <div class="grab"></div>
   <div class="assistant-head mail-head">
-    <h2 id="mailTitle">Bewerbungen</h2>
+    <h2 id="mailTitle">Postfach</h2>
     <button class="icon-btn" type="button" id="mailClose" aria-label="Schließen"><svg><use href="#i-x"/></svg></button>
   </div>
   <div id="mailContent"></div>
@@ -2113,6 +2115,7 @@ function installUpdate(){
 let S = store.get("jr_last", null) || {q:null, items:[]};
 let filter = "all", running = false;
 let applied = store.get("jr_applied", {});
+const applicationThreads = new Map();
 let tpl = Object.assign({}, DEFAULT_TPL, store.get("jr_tpl", {}));
 let radius = store.get("jr_rad", 10);
 let chosenLoc = store.get("jr_loc", null);
@@ -2150,10 +2153,11 @@ function renderSeg(){
 }
 function card(x){
   const mails = emailsOf(x), phones = phonesOf(x), ap = isApplied(x), c = x.c;
+  const thread = applicationThreads.get(x.id);
   let b = "";
   if (c && c.jobs) b += `<span class="badge ok">Jobseite</span>`;
   if (c) c.hints.slice(0, 4).forEach(h => b += `<span class="badge gold">${esc(h)}</span>`);
-  if (ap) b += `<span class="badge done">✓ Beworben</span>`;
+  if (ap && !thread) b += `<span class="badge done">✓ Beworben</span>`;
   const profile = specialtyProfile(S.q?.term);
   if (profile && x.relevance && x.relevance <= (profile.terms === VISUALIZATION_TERMS ? 3 : 1)) {
     b += `<span class="badge">Verwandte Branche</span>`;
@@ -2172,15 +2176,16 @@ function card(x){
   else if (c && !mails.length && !c.jobs) note = `<p class="note">Keine Jobseite oder Mail auf der Webseite gefunden.</p>`;
   else if (!x.website && !mails.length && !phones.length) note = `<p class="note">Keine Webseite hinterlegt – über Google suchen.</p>`;
   let a = "";
-  if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
+  if (thread) a += `<button class="act done" data-a="thread" title="Unterhaltung öffnen">Beworben${icon("check")}</button>`;
+  else if (mails.length) a += `<button class="act main" data-a="mail">${icon("mail")}Bewerben</button>`;
   else if (needsContactScan(x)) a += `<button class="act main" data-a="scan" ${x.state === "run" ? "disabled" : ""}>${icon("search")}Kontakt suchen</button>`;
   a += `<button class="act" data-a="assistant">${icon("spark")}Assistent</button>`;
-  if (c && c.jobs) a += `<button class="act${mails.length ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
+  if (c && c.jobs) a += `<button class="act${mails.length || thread ? "" : " main"}" data-a="jobs">${icon("case")}Jobs</button>`;
   if (phones.length) a += `<button class="act" data-a="call">${icon("phone")}Anrufen</button>`;
   if (x.website) a += `<button class="act" data-a="web">${icon("globe")}Webseite</button>`;
   if (!x.website || (c && !mails.length && !c.jobs)) a += `<button class="act" data-a="google">${icon("search")}Google</button>`;
   if (Number.isFinite(x.lat)) a += `<button class="act" data-a="map">${icon("map")}Karte</button>`;
-  a += `<button class="act${ap ? " done" : ""}" data-a="applied">${icon("check")}${ap ? "Beworben" : "Erledigt"}</button>`;
+  if (!thread) a += `<button class="act${ap ? " done" : ""}" data-a="applied">${icon("check")}${ap ? "Beworben" : "Erledigt"}</button>`;
   return `<article class="card${ap ? " applied" : ""}" data-id="${esc(x.id)}">
     <div class="c-head"><div class="c-title"><h3>${esc(x.name)}</h3><p>${esc([x.kind, x.address].filter(Boolean).join(" · "))}</p></div>
     ${Number.isFinite(x.km) ? `<span class="dist">${x.km.toFixed(1).replace(".", ",")} km</span>` : ""}</div>
@@ -2659,6 +2664,7 @@ function renderAssistant() {
 function action(x, a){
   const phones = phonesOf(x);
   if (a === "mail") applyByMail(x);
+  else if (a === "thread" && applicationThreads.has(x.id)) showMailThread(openMail("thread"),applicationThreads.get(x.id).id);
   else if (a === "scan") scanBusiness(x);
   else if (a === "contact-source" && /^https?:\/\//i.test(x.c?.person?.source || "")) openUrl(x.c.person.source);
   else if (a === "jobs") openUrl(x.c.jobs);
@@ -2710,6 +2716,11 @@ async function addWebsite(event) {
 
 /* ---------- Bewerbungen per E-Mail ---------- */
 let mailView = null;
+let mailThreads = [];
+let mailConnectionRevision = 0;
+let mailConnected;
+let mailCheckTimer, mailChecking = false, nextMailBatch = 0;
+const readMail = store.get("jr_mail_read", {});
 const mailDate = new Intl.DateTimeFormat("de-DE",{dateStyle:"medium",timeStyle:"short"});
 const mailProviders = {outlook:"Outlook",gmail:"Gmail"};
 
@@ -2757,14 +2768,92 @@ function closeMail() {
 }
 
 function markConfirmedApplications(threads) {
-  let changed = false;
+  let changed = false, saved = false;
   for (const thread of threads) {
-    if (thread.sent && S.items.some(x => x.id === thread.business_id) && !applied[thread.business_id]) {
+    if (!thread.sent || !thread.id || !thread.business_id) continue;
+    const current = applicationThreads.get(thread.business_id);
+    if (!current || thread.latest_at > current.latest_at) {
+      applicationThreads.set(thread.business_id,{id:thread.id,latest_at:thread.latest_at});
+      changed ||= current?.id !== thread.id;
+    }
+    if (!applied[thread.business_id]) {
       applied[thread.business_id] = thread.latest_at;
-      changed = true;
+      saved = true;
     }
   }
-  if (changed) { store.set("jr_applied",applied); render(); }
+  if (saved) store.set("jr_applied",applied);
+  if (changed || saved) render();
+}
+
+const unreadReply = thread => thread.latest_inbound && thread.latest_at > (readMail[thread.id] || 0);
+
+function renderMailUnread() {
+  const count = mailThreads.filter(unreadReply).length;
+  $("mailUnread").hidden = count === 0;
+  $("mailUnread").textContent = count > 99 ? "99+" : count;
+  $("mailUnread").setAttribute("aria-label",`${count} ungelesene Antworten`);
+}
+
+function markThreadRead(id, thread) {
+  if (document.hidden || !thread.messages.length || thread.latest_at <= (readMail[id] || 0)) return;
+  readMail[id] = thread.latest_at;
+  store.set("jr_mail_read",readMail);
+  renderMailUnread();
+}
+
+function resetMailTracking(connected) {
+  mailConnectionRevision++;
+  mailConnected = connected;
+  mailThreads = [];
+  nextMailBatch = 0;
+  clearTimeout(mailCheckTimer);
+  renderMailUnread();
+  if (applicationThreads.size) { applicationThreads.clear(); render(); }
+}
+
+async function loadMailThreads() {
+  const revision = mailConnectionRevision;
+  const {threads} = await mailAPI("list");
+  if (revision === mailConnectionRevision) {
+    mailConnected = true;
+    mailThreads = threads;
+    markConfirmedApplications(threads);
+    renderMailUnread();
+  }
+  return threads;
+}
+
+async function checkMailAutomatically() {
+  clearTimeout(mailCheckTimer);
+  if (mailChecking || mailConnected === false || document.hidden || !store.get("jr_assistant_device", "")) return;
+  const revision = mailConnectionRevision, state = mailView;
+  mailChecking = true;
+  try {
+    if (state?.loading || state?.threadLoading || state?.sending || state?.connecting) return;
+    const openThread = state?.view === "thread" && state.thread ? state.threadId : null;
+    if (openThread) await refreshOpenMailThread(state,openThread,revision).catch(() => {});
+    if (document.hidden || revision !== mailConnectionRevision) return;
+    let threads = await loadMailThreads();
+    const tracked = threads.filter(thread => thread.id !== openThread && (thread.sent || thread.pending));
+    const start = tracked.length ? nextMailBatch % tracked.length : 0;
+    const batch = tracked.slice(start,start+6);
+    if (batch.length && !document.hidden && revision === mailConnectionRevision) {
+      await mailAPI("sync",{thread:batch.map(thread=>thread.id)});
+      if (revision !== mailConnectionRevision) return;
+      nextMailBatch = start + batch.length < tracked.length ? start + batch.length : 0;
+      threads = await loadMailThreads();
+    }
+    if (revision === mailConnectionRevision && state && mailView === state && state.view === "inbox" && !state.loading &&
+        JSON.stringify(state.threads) !== JSON.stringify(threads)) {
+      state.threads = threads;
+      renderMail();
+    }
+  } catch (error) {
+    if (revision === mailConnectionRevision && error.message === "mail_disconnected") resetMailTracking(false);
+  } finally {
+    mailChecking = false;
+    if (!document.hidden && mailConnected !== false) mailCheckTimer = setTimeout(checkMailAutomatically,20000);
+  }
 }
 
 async function refreshMail(state) {
@@ -2776,10 +2865,8 @@ async function refreshMail(state) {
     const info = await mailAPI("status");
     Object.assign(state,info);
     if (mailView !== state || !state.account || state.view !== "inbox") return;
-    const initial = await mailAPI("list");
-    state.threads = initial.threads;
+    state.threads = await loadMailThreads();
     if (mailView !== state || state.view !== "inbox") return;
-    markConfirmedApplications(state.threads);
     if (!state.threads.length) return;
     renderMail();
     const tracked = state.threads.filter(item=>item.sent || item.pending);
@@ -2788,8 +2875,7 @@ async function refreshMail(state) {
       if (synced.partial) state.error = "Einige Unterhaltungen konnten nicht aktualisiert werden.";
     }
     if (mailView !== state || state.view !== "inbox") return;
-    state.threads = (await mailAPI("list")).threads;
-    markConfirmedApplications(state.threads);
+    state.threads = await loadMailThreads();
   } catch (error) {
     state.error = mailError(error);
     state.reconnect = error.message === "mail_reconnect";
@@ -2820,11 +2906,17 @@ function recipientAndAttachment(state) {
   if (file) state.attachment = file;
 }
 
+function mailTimeline(thread) {
+  return thread.messages.map(message=>`<article class="mail-message${message.outgoing ? " outgoing" : ""}">
+    <strong>${esc(message.outgoing ? "Du" : message.from)}</strong> <span class="mail-date">${message.at ? mailDate.format(message.at) : ""}</span><p>${esc(message.body)}</p></article>`).join("") +
+    (thread.pending ? '<p class="mail-status">Versand wird geprüft.</p>' : "");
+}
+
 function renderMail() {
   const state = mailView;
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
-  $("mailTitle").textContent = state.view === "compose" ? "Bewerbung prüfen" : state.view === "thread" ? (state.thread?.company || "Unterhaltung") : state.view === "connect" ? "E-Mail verbinden" : "Bewerbungen";
+  $("mailTitle").textContent = state.view === "compose" ? "Bewerbung prüfen" : state.view === "thread" ? (state.thread?.company || "Unterhaltung") : state.view === "connect" ? "E-Mail verbinden" : "Postfach";
   if (state.view === "connect") {
     content.innerHTML = `<button type="button" class="link" data-mail="back">Zurück</button>${alert}
       <p>Bestätige die Anmeldung im Browser. Kopiere den Code und füge ihn hier ein.</p>
@@ -2852,12 +2944,10 @@ function renderMail() {
   }
   if (state.view === "thread") {
     const thread = state.thread;
-    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Bewerbungen</button><button class="link" type="button" data-mail="refresh-thread">Aktualisieren</button></div>${alert}
+    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Postfach</button><button class="link" type="button" data-mail="refresh-thread">Aktualisieren</button></div>${alert}
       ${state.threadLoading ? '<p class="mail-status" role="status">Unterhaltung wird geladen …</p>' : ""}
       ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
-      ${thread ? `<p class="hint">${esc(thread.subject)}</p><div id="mailTimeline">${thread.messages.map(message=>`<article class="mail-message${message.outgoing ? " outgoing" : ""}">
-        <strong>${esc(message.outgoing ? "Du" : message.from)}</strong> <span class="mail-date">${message.at ? mailDate.format(message.at) : ""}</span><p>${esc(message.body)}</p></article>`).join("")}</div>
-        ${thread.pending ? '<p class="mail-status">Versand wird geprüft.</p>' : ""}
+      ${thread ? `<p class="hint">${esc(thread.subject)}</p><div id="mailTimeline">${mailTimeline(thread)}</div>
         ${thread.messages.length && thread.replyTo ? `<form id="replyMail"><label class="lbl" for="mailBody">Antwort an ${esc(thread.replyTo)}</label>
           <textarea id="mailBody" maxlength="16000" required></textarea>
           <label class="lbl" for="mailAttachment">Datei anhängen</label><input type="file" id="mailAttachment" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.txt">
@@ -2866,19 +2956,39 @@ function renderMail() {
     if ($("mailBody")) $("mailBody").value = state.reply || "";
     return;
   }
-  content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Bewerbungen werden aktualisiert …</p>' : ""}
+  content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}
     ${state.account ? `<div class="mail-actions"><span class="hint">${esc(state.account.address)}</span><button class="link" type="button" data-mail="refresh">Aktualisieren</button></div>
       ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
       ${state.threads.map(thread=>`<button class="mail-row" type="button" data-mail="thread" data-thread="${esc(thread.id)}"><strong>${esc(thread.company)}</strong>
-        <span>${esc(thread.subject)}</span><span class="${thread.latest_inbound ? "mail-reply" : ""}">${thread.pending ? "Versand wird geprüft" : thread.latest_inbound ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen"} · ${mailDate.format(thread.latest_at)}</span></button>`).join("")}
+        <span>${esc(thread.subject)}</span><span class="${thread.latest_inbound ? "mail-reply" : ""}">${unreadReply(thread) ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : thread.latest_inbound ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen"} · ${mailDate.format(thread.latest_at)}</span></button>`).join("")}
       ${state.threads.length || state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}
       <div class="mail-actions"><button class="link" type="button" data-mail="disconnect">E-Mail trennen</button></div>`
     : state.providers.length ? `<p>Verbinde dein Postfach, um Bewerbungen zu senden und Antworten hier zu sehen.</p><div class="mail-actions">${providerButtons(state)}</div>`
     : state.loading ? "" : '<button class="link" type="button" data-mail="refresh">Erneut versuchen</button>'}`;
 }
 
+async function refreshOpenMailThread(state, id, revision) {
+  const previous = state.thread;
+  const thread = await mailAPI("thread",{thread:id});
+  if (revision !== mailConnectionRevision) return;
+  markConfirmedApplications([{...thread,id}]);
+  if (document.hidden || mailView !== state || state.view !== "thread" || state.threadId !== id || state.thread !== previous || state.threadLoading || state.sending) return;
+  state.thread = thread;
+  markThreadRead(id,thread);
+  if (thread.latest_at === previous.latest_at && thread.pending === previous.pending && thread.messages.length === previous.messages.length && thread.replyTo === previous.replyTo) return;
+  const replyLabel = $("replyMail")?.querySelector('label[for="mailBody"]');
+  if ($("mailTimeline") && Boolean(replyLabel) === Boolean(thread.replyTo && thread.messages.length)) {
+    $("mailTimeline").innerHTML = mailTimeline(thread);
+    if (replyLabel) replyLabel.textContent = `Antwort an ${thread.replyTo}`;
+  } else {
+    recipientAndAttachment(state);
+    renderMail();
+  }
+}
+
 async function showMailThread(state, id, attempt = 0) {
   if (state.threadLoading || state.sending) return;
+  const revision = mailConnectionRevision;
   clearTimeout(state.pendingTimer);
   if (state.view === "thread") recipientAndAttachment(state);
   if (state.threadId !== id) { state.thread = null; state.reply = ""; state.attachment = null; state.requestId = null; }
@@ -2889,9 +2999,11 @@ async function showMailThread(state, id, attempt = 0) {
   renderMail();
   try {
     const thread = await mailAPI("thread",{thread:id});
-    if (mailView === state && state.threadId === id) {
+    if (revision !== mailConnectionRevision) return;
+    markConfirmedApplications([{...thread,id}]);
+    if (mailView === state && state.view === "thread" && state.threadId === id) {
       state.thread = thread;
-      markConfirmedApplications([thread]);
+      markThreadRead(id,thread);
       if (thread.pending && attempt < 4) {
         state.pendingTimer = setTimeout(() => {
           if (mailView === state && state.view === "thread" && state.threadId === id && document.activeElement !== $("mailBody")) {
@@ -2902,7 +3014,11 @@ async function showMailThread(state, id, attempt = 0) {
     }
   } catch (error) {
     state.error = mailError(error);
-    state.reconnect = error.message === "mail_reconnect";
+    state.reconnect = ["mail_reconnect","mail_disconnected"].includes(error.message);
+    if (state.reconnect && !state.providers.length) {
+      const info = await mailAPI("status").catch(() => null);
+      if (info) Object.assign(state,info);
+    }
   } finally {
     state.threadLoading = false;
     if (mailView === state && state.view === "thread") renderMail();
@@ -2922,6 +3038,7 @@ async function mailAttachment(file) {
 
 async function submitMail(state, reply) {
   if (state.sending) return;
+  const revision = mailConnectionRevision;
   recipientAndAttachment(state);
   state.sending = true;
   state.error = "";
@@ -2933,13 +3050,15 @@ async function submitMail(state, reply) {
     const fields = reply ? {thread:state.threadId,recipient:state.thread.replyTo,subject:state.thread.subject,body:state.reply}
       : {business:state.draft.company.id,company:state.draft.company.name,recipient:state.draft.recipient,subject:state.draft.subject,body:state.draft.body};
     const result = await mailAPI(reply ? "reply" : "send",{...fields,...await mailAttachment(state.attachment),id:state.requestId});
+    if (!reply && result.state === "sent" && revision === mailConnectionRevision) {
+      markConfirmedApplications([{id:result.thread,sent:true,business_id:state.draft.company.id,latest_at:Date.now()}]);
+    }
     if (mailView !== state) return;
     if (result.state === "failed") {
       state.requestId = null;
       state.error = "Die E-Mail konnte nicht gesendet werden. Du kannst es erneut versuchen.";
       return;
     }
-    if (!reply && result.state === "sent") markConfirmedApplications([{sent:true,business_id:state.draft.company.id,latest_at:Date.now()}]);
     state.attachment = null;
     state.requestId = null;
     state.reply = "";
@@ -3000,6 +3119,7 @@ $("mailContent").onclick = async event => {
     state.connecting = true;
     try {
       await mailAPI("disconnect");
+      resetMailTracking(false);
       if (mailView !== state) return;
       state.account = null;
       state.threads = [];
@@ -3012,12 +3132,14 @@ $("mailContent").onsubmit = async event => {
   const state = mailView;
   if (!state) return;
   if (event.target.id === "composeMail" || event.target.id === "replyMail") {
-    if (state.account) await submitMail(state,event.target.id === "replyMail");
+    const reply = event.target.id === "replyMail";
+    if (reply || state.account) await submitMail(state,reply);
   } else if (event.target.id === "confirmMail" && !state.connecting) {
     state.connecting = true;
     state.error = "";
     try {
       const result = await mailAPI("confirm",{confirmation:$("mailCode").value.trim()});
+      resetMailTracking(true);
       if (mailView !== state) return;
       state.account = result.account;
       state.reconnect = false;
@@ -3025,7 +3147,11 @@ $("mailContent").onsubmit = async event => {
       if (state.view === "inbox") await refreshMail(state);
       if (state.view === "thread") await showMailThread(state,state.threadId);
     } catch (error) { state.error = mailError(error); }
-    finally { state.connecting = false; if (mailView === state) renderMail(); }
+    finally {
+      state.connecting = false;
+      if (mailView === state) renderMail();
+      if (mailConnected) checkMailAutomatically();
+    }
   }
 };
 
@@ -3111,7 +3237,8 @@ $("assistantSheet").addEventListener("keydown", event => {
 });
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && assistant?.access === "approval") checkAssistantAccess(assistant);
-  if (!document.hidden && mailView?.view === "inbox") refreshMail(mailView);
+  if (document.hidden) clearTimeout(mailCheckTimer);
+  else checkMailAutomatically();
 });
 $("assistantContent").onclick = async e => {
   const button = e.target.closest("button");
@@ -3174,6 +3301,7 @@ if (S.q) $("b").value = S.q.term;
 renderChips(); renderSeg(); render(); statusSummary(); updateAok();
 
 if (hasNative) { Native.ready(); renderUpdate(""); setTimeout(() => checkUpdate(false), 1500); }
+checkMailAutomatically();
 
 window.JR = {filtersFor, buildQuery, parseElements, extract, crawl, cleanMail};
 </script>
