@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="20">
+<meta name="jr-version" content="21">
 <meta name="jr-native" content="2">
 <title>JobRadar</title>
 <style>
@@ -675,8 +675,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
 :root{
   --bg:#F6F5FB;--card:#FFFFFF;--ink:#17162B;--mute:#6B6A80;--line:#E7E5F2;
   --acc:#4F46E5;--acc-press:#4338CA;--acc-soft:#EEEDFD;--ok:#0E7C55;--ok-soft:#E2F4EC;
-  --gold:#B7791F;--gold-soft:#FDF3E1;--warn:#B4590B;--r:18px;
+  --gold:#B7791F;--gold-soft:#FDF3E1;--warn:#B4590B;--r:18px;--tile-line:#DEDBEC;
   --shadow:0 1px 2px rgba(23,22,43,.04),0 4px 16px rgba(23,22,43,.05);
+  --tile-shadow:0 2px 6px rgba(23,22,43,.07);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);
@@ -697,7 +698,8 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .icon-btn:active{background:var(--line)}
 
 /* Suchpanel */
-.panel{background:var(--card);border-radius:var(--r);padding:16px;box-shadow:var(--shadow)}
+.panel{background:var(--card);border:1px solid #CFCBF6;border-radius:var(--r);padding:16px;box-shadow:var(--tile-shadow)}
+.summary:not(.hidden) + .panel:not(.hidden){margin-top:12px}
 .lbl{display:block;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--mute);margin:14px 0 7px}
 .lbl:first-child{margin-top:0}
 .field{display:flex;align-items:center;gap:10px;background:var(--bg);border:1.5px solid transparent;border-radius:14px;padding:0 12px;transition:border-color .15s}
@@ -719,11 +721,12 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 #go{margin-top:18px;font-size:16px}
 
 /* Zusammenfassung nach der Suche */
-.summary{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:var(--r);padding:12px 14px;box-shadow:var(--shadow)}
+.summary{display:flex;align-items:center;gap:12px;background:linear-gradient(100deg,#F0EEFF,var(--card) 75%);border:1px solid #CFCBF6;border-inline-start:3px solid var(--acc);border-radius:var(--r);padding:12px 14px;box-shadow:0 3px 10px rgba(79,70,229,.13)}
 .summary .ico{width:38px;height:38px;border-radius:12px;background:var(--acc-soft);color:var(--acc);display:grid;place-items:center;flex:none}
 .summary b{display:block;font-size:15px}
 .summary span{display:block;color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .summary div{min-width:0;flex:1}
+.summary .link{background:var(--acc-soft);border-radius:10px;padding:8px 10px}
 .link{color:var(--acc);font-weight:600;padding:8px 4px;flex:none}
 
 /* Filter + Status */
@@ -765,7 +768,7 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 
 /* Karten */
-.card{scroll-margin-bottom:100px;background:var(--card);border-radius:var(--r);padding:15px 15px 12px;margin-bottom:10px;box-shadow:var(--shadow);animation:in .25s ease both}
+.card{scroll-margin-bottom:100px;background:var(--card);border:1px solid var(--tile-line);border-radius:var(--r);padding:15px 15px 12px;margin-bottom:10px;box-shadow:var(--tile-shadow);animation:in .25s ease both}
 @keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .card.applied{opacity:.62}
 .c-head{display:flex;gap:10px;align-items:flex-start}
@@ -821,8 +824,20 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .sheet input:focus,.sheet textarea:focus{border-color:var(--acc);background:#fff}
 .sheet textarea{min-height:220px;resize:vertical;line-height:1.45}
 .sheet .row2{display:flex;gap:10px;margin-top:16px}
-#mailContent .row2 .primary{flex:1;width:auto}
+#mailContent .row2 .primary{flex:1;width:auto;margin-top:0}
 .mail-disconnect-address{overflow-wrap:anywhere}
+.sheet-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.sheet-head h2{flex:1;min-width:0;margin:0;overflow-wrap:anywhere}
+.sheet-head .icon-btn{margin:0;flex:none;background:var(--bg)}
+.sheet-head .icon-btn:disabled{opacity:.45}
+.settings-menu{display:grid;gap:8px}
+.settings-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;min-height:48px;padding:10px 12px;background:var(--bg);border:1px solid var(--line);border-radius:13px;font-weight:600}
+.settings-row svg{color:var(--acc)}
+.settings-row svg:last-child{margin-left:auto;width:16px;height:16px;color:var(--mute)}
+.settings-version{margin-top:6px;color:var(--mute);font-size:13px}
+.mail-account{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:8px 10px;border:1px solid var(--tile-line);border-radius:13px;margin-bottom:8px}
+.mail-account span{flex:1 1 130px;min-width:0;overflow-wrap:anywhere}
+.mail-account .link{color:#9E343B}
 #websiteDetails{margin-top:16px}
 #websiteDetails summary{cursor:pointer;color:var(--acc);font-weight:600}
 #websiteSubmit{width:100%;margin-top:8px}
@@ -843,10 +858,12 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .mail-unread{min-width:17px;padding:1px 4px;border-radius:10px;background:var(--acc);color:white;text-align:center}
 .top .mail-nav + .icon-btn{margin-left:0;flex:none}
 .mail-head{position:sticky;top:-10px;background:var(--card);z-index:1;padding:5px 0}
-.mail-head h2{overflow-wrap:anywhere}
-.mail-row{display:block;width:100%;text-align:left;padding:12px 0;border-bottom:1px solid var(--line)}
+.mail-rows{display:grid;gap:9px;padding:3px 0 5px}
+.mail-row{display:block;width:100%;text-align:left;padding:11px 12px;background:var(--card);border:1px solid var(--tile-line);border-radius:14px;box-shadow:var(--tile-shadow)}
 .mail-row strong,.mail-row span{display:block;overflow-wrap:anywhere}
 .mail-row span,.mail-date{color:var(--mute);font-size:13px}
+.mail-row.has-reply{border-inline-start:4px solid #81B9A3}
+.mail-row.new-reply{border-inline-start-color:var(--ok);background:#F3FBF7}
 .mail-row .mail-reply{color:var(--ok);font-weight:600}
 .mail-message{background:var(--bg);border-radius:14px;padding:12px;margin:10px 12px 10px 0;overflow-wrap:anywhere}
 .mail-message.outgoing{background:var(--acc-soft);margin:10px 0 10px 12px}
@@ -859,7 +876,6 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .banner{display:flex;align-items:center;gap:10px;background:var(--acc-soft);color:var(--acc);border-radius:14px;padding:10px 10px 10px 14px;margin-bottom:12px;font-weight:600;font-size:14px}
 .banner span{flex:1}
 .banner button{background:var(--acc);color:#fff;border-radius:10px;padding:8px 12px;font-weight:600;font-size:14px}
-.upd{margin-top:22px;padding-top:16px;border-top:1px solid var(--line)}
 .upd .ghost{width:100%;margin-top:8px}
 .upd .link{display:block;margin:8px auto 0;font-size:14px}
 .viewseg{display:grid;grid-template-columns:1fr 1fr;background:var(--card);border-radius:14px;padding:4px;gap:4px;margin-top:14px;box-shadow:var(--shadow)}
@@ -922,17 +938,26 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
   <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M6 18l2.5-2.5M15.5 8.5L18 6"/></symbol>
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 10a8 8 0 0 0-14-4L3 9m0-5v5h5m-4 5a8 8 0 0 0 14 4l3-3m0 5v-5h-5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
 </svg>
 
 <header class="top">
   <div class="logo"><svg><use href="#i-radar"/></svg></div>
-  <div><h1>JobRadar</h1><p>Nebenjobs in deiner Nähe</p></div>
+  <div><h1>JobRadar</h1><p>find jobs fast</p></div>
   <button class="mail-nav" id="mailInbox" type="button"><svg aria-hidden="true"><use href="#i-mail"/></svg>Postfach<span class="mail-unread" id="mailUnread" hidden></span></button>
-  <button class="icon-btn" id="gear" aria-label="Bewerbungstext"><svg><use href="#i-gear"/></svg></button>
+  <button class="icon-btn" id="gear" aria-label="Einstellungen"><svg aria-hidden="true"><use href="#i-gear"/></svg></button>
 </header>
 
 <div class="banner hidden" id="banner"><svg><use href="#i-spark"/></svg><span id="bannerT"></span><button id="bannerB">Installieren</button></div>
+
+<section class="summary hidden" id="summary">
+  <div class="ico"><svg aria-hidden="true"><use href="#i-radar"/></svg></div>
+  <div><b id="sumT"></b><span id="sumS"></span></div>
+  <button class="link" type="button" id="edit" aria-controls="panel">Ändern</button>
+</section>
 
 <section class="panel" id="panel">
   <label class="lbl" for="b">Branche</label>
@@ -953,12 +978,6 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <div class="seg" id="seg"></div>
 
   <button class="primary" id="go"><svg><use href="#i-radar"/></svg>Firmen finden</button>
-</section>
-
-<section class="summary hidden" id="summary">
-  <div class="ico"><svg><use href="#i-radar"/></svg></div>
-  <div><b id="sumT"></b><span id="sumS"></span></div>
-  <button class="link" id="edit">Ändern</button>
 </section>
 
 <div class="viewseg hidden" id="viewseg"><button data-v="list"><svg><use href="#i-list"/></svg>Liste</button><button data-v="map"><svg><use href="#i-map"/></svg>Karte</button></div>
@@ -993,37 +1012,50 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
   <div id="mapCompanyContent"></div>
 </section>
 <div class="backdrop" id="bd"></div>
-<div class="sheet" id="sheet">
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
   <div class="grab"></div>
-  <h2>Bewerbungsmail</h2>
-  <p class="hint">Wird beim Tippen auf „Bewerben" automatisch in die Mail-App eingesetzt. {firma} setzt den Firmennamen ein, {anrede} die Anrede.</p>
-  <label class="lbl" for="tName">Dein Name</label>
-  <input id="tName" placeholder="Vor- und Nachname">
-  <label class="lbl" for="tSubj">Betreff</label>
-  <input id="tSubj">
-  <label class="lbl" for="tBody">Text</label>
-  <textarea id="tBody"></textarea>
-  <p class="hint" style="margin-top:8px">Lebenslauf kannst du in der Mail-App vor dem Senden anhängen.</p>
-  <div class="row2"><button class="ghost" id="tReset">Standard</button><button class="primary" id="tSave" style="flex:2">Speichern</button></div>
-  <details id="websiteDetails">
-    <summary>Firmenwebsite hinzufügen</summary>
-    <form id="websiteForm">
-      <label class="lbl" for="websiteUrl">Firmenwebsite</label>
-      <input type="text" id="websiteUrl" inputmode="url" autocomplete="url" placeholder="firma.de" required>
-      <label class="lbl" for="websiteName">Firmenname (optional)</label>
-      <input type="text" id="websiteName" placeholder="Firmenname">
-      <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
-    </form>
-  </details>
-  <div class="upd hidden" id="upd">
-    <label class="lbl">App-Update</label>
-    <p class="hint" id="verInfo"></p>
-    <button class="ghost" id="upBtn">Nach Updates suchen</button>
-    <p class="hint" id="upMsg" style="text-align:center;margin-top:8px"></p>
-    <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
+  <div class="sheet-head">
+    <button class="icon-btn hidden" id="settingsBack" type="button" aria-label="Zurück zu Einstellungen"><svg aria-hidden="true"><use href="#i-back"/></svg></button>
+    <h2 id="settingsTitle" tabindex="-1">Einstellungen</h2>
+    <button class="icon-btn" id="settingsClose" type="button" aria-label="Schließen"><svg aria-hidden="true"><use href="#i-x"/></svg></button>
   </div>
-  <a id="overtureCredit" class="hint" href="https://docs.overturemaps.org/attribution/#places">Regionale Firmendaten · Overture Maps Foundation</a>
-</div>
+  <nav class="settings-menu" id="settingsHome" aria-label="Einstellungen">
+    <button class="settings-row" id="settingsMail" type="button"><svg aria-hidden="true"><use href="#i-mail"/></svg>E-Mail-Verbindung<svg aria-hidden="true"><use href="#i-next"/></svg></button>
+    <button class="settings-row" id="settingsTemplateLink" type="button"><svg aria-hidden="true"><use href="#i-list"/></svg>Bewerbungsvorlage<svg aria-hidden="true"><use href="#i-next"/></svg></button>
+    <button class="settings-row" id="settingsCoachLink" type="button"><svg aria-hidden="true"><use href="#i-spark"/></svg>AI-Coach<svg aria-hidden="true"><use href="#i-next"/></svg></button>
+    <button class="settings-row settings-version" id="settingsAppLink" type="button"><span id="settingsVersion"></span><svg aria-hidden="true"><use href="#i-next"/></svg></button>
+  </nav>
+  <section id="settingsTemplate" class="hidden">
+    <p class="hint">{firma} setzt den Firmennamen ein, {anrede} die Anrede.</p>
+    <label class="lbl" for="tName">Dein Name</label>
+    <input id="tName" placeholder="Vor- und Nachname">
+    <label class="lbl" for="tSubj">Betreff</label>
+    <input id="tSubj">
+    <label class="lbl" for="tBody">Text</label>
+    <textarea id="tBody"></textarea>
+    <div class="row2"><button class="ghost" id="tReset">Standard</button><button class="primary" id="tSave" style="flex:2">Speichern</button></div>
+  </section>
+  <section id="settingsCoach" class="hidden"><p class="hint">Demnächst verfügbar.</p></section>
+  <section id="settingsApp" class="hidden">
+    <div class="upd hidden" id="upd">
+      <p class="hint" id="verInfo"></p>
+      <button class="ghost" id="upBtn">Nach Updates suchen</button>
+      <p class="hint" id="upMsg" role="status" style="text-align:center;margin-top:8px"></p>
+      <button class="link hidden" id="upReset">Originalversion wiederherstellen</button>
+    </div>
+    <details id="websiteDetails">
+      <summary>Firmenwebsite hinzufügen</summary>
+      <form id="websiteForm">
+        <label class="lbl" for="websiteUrl">Firmenwebsite</label>
+        <input type="text" id="websiteUrl" inputmode="url" autocomplete="url" placeholder="firma.de" required>
+        <label class="lbl" for="websiteName">Firmenname (optional)</label>
+        <input type="text" id="websiteName" placeholder="Firmenname">
+        <button type="submit" class="ghost" id="websiteSubmit">Kontakte suchen und hinzufügen</button>
+      </form>
+    </details>
+    <a id="overtureCredit" class="hint" href="https://docs.overturemaps.org/attribution/#places">Regionale Firmendaten · Overture Maps Foundation</a>
+  </section>
+</section>
 <div class="backdrop" id="assistantBackdrop"></div>
 <section class="sheet" id="assistantSheet" role="dialog" aria-modal="true" aria-labelledby="assistantTitle">
   <div class="grab"></div>
@@ -1037,8 +1069,10 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 <div class="backdrop" id="mailBackdrop"></div>
 <section class="sheet" id="mailSheet" role="dialog" aria-modal="true" aria-labelledby="mailTitle">
   <div class="grab"></div>
-  <div class="assistant-head mail-head">
-    <h2 id="mailTitle">Postfach</h2>
+  <div class="sheet-head mail-head">
+    <button class="icon-btn hidden" id="mailBack" type="button" aria-label="Zurück"><svg aria-hidden="true"><use href="#i-back"/></svg></button>
+    <h2 id="mailTitle" tabindex="-1">Postfach</h2>
+    <button class="icon-btn hidden" id="mailRefresh" type="button" aria-label="Postfach aktualisieren"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
     <button class="icon-btn" type="button" id="mailClose" aria-label="Schließen"><svg><use href="#i-x"/></svg></button>
   </div>
   <div id="mailContent"></div>
@@ -2234,6 +2268,7 @@ function visible(){
   if (filter === "applied") return it.filter(isApplied);
   return it;
 }
+const listDistance = x => Number.isFinite(x.km) ? x.km : Infinity;
 function renderFilters(){
   const it = S.items, crawled = it.some(x => x.c);
   const defs = [["all","Alle",it.length]];
@@ -2246,24 +2281,28 @@ function renderFilters(){
 function render(){
   const has = !!S.q;
   const editing = !!render.editing;
+  const loading = !$("loading").classList.contains("hidden");
+  const showResults = !editing && !loading;
   const hasMap = S.items.some(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
-  const showMap = hasMap && view === "map" && !editing;
+  const showMap = hasMap && view === "map" && showResults;
   document.documentElement.classList.toggle("map-mode", showMap);
   $("panel").classList.toggle("hidden", has && !editing);
-  $("summary").classList.toggle("hidden", !has || editing);
-  $("filters").classList.toggle("hidden", !S.items.length || editing);
-  $("dock").classList.toggle("hidden", !S.items.length || editing);
-  $("empty").classList.toggle("hidden", has);
+  $("summary").classList.toggle("hidden", !has);
+  $("filters").classList.toggle("hidden", !S.items.length || !showResults);
+  $("dock").classList.toggle("hidden", !S.items.length || !showResults);
+  $("empty").classList.toggle("hidden", has || loading);
+  $("edit").textContent = editing ? "Abbrechen" : "Ändern";
+  $("edit").setAttribute("aria-expanded", String(editing));
   if (has) {
     $("sumT").textContent = `${S.q.term} · ${S.q.km} km`;
     $("sumS").textContent = S.q.origin;
   }
   renderFilters();
   const v = visible();
-  $("viewseg").classList.toggle("hidden", !hasMap || editing);
+  $("viewseg").classList.toggle("hidden", !hasMap || !showResults);
   [...$("viewseg").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
   $("mapwrap").classList.toggle("hidden", !showMap);
-  $("list").classList.toggle("hidden", showMap || editing);
+  $("list").classList.toggle("hidden", showMap || !showResults);
   if (showMap) {
     const mapped = v.filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
     $("mapEmpty").classList.toggle("hidden", mapped.length > 0);
@@ -2273,8 +2312,9 @@ function render(){
     $("mapCompanyBackdrop").classList.toggle("open", !!selected);
     $("mapCompanySheet").classList.toggle("open", !!selected);
     $("list").innerHTML = "";
-  } else {
-    $("list").innerHTML = v.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
+  } else if (showResults) {
+    const nearestFirst = [...v].sort((a,b) => listDistance(a) - listDistance(b));
+    $("list").innerHTML = nearestFirst.map(card).join("") || (has && S.items.length ? `<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>` : "");
   }
   updateCrawlBtn();
 }
@@ -2371,6 +2411,7 @@ function renderMap(items){
 }
 function setLoading(on, title, sub){
   $("loading").classList.toggle("hidden", !on);
+  $("edit").disabled = on;
   if (on) {
     document.documentElement.classList.remove("map-mode");
     $("empty").classList.add("hidden"); $("list").innerHTML = ""; $("filters").classList.add("hidden"); $("dock").classList.add("hidden"); $("viewseg").classList.add("hidden"); $("mapwrap").classList.add("hidden");
@@ -2748,7 +2789,7 @@ async function addWebsite(event) {
     filter = "all"; view = "list"; save(); render(); statusSummary();
     $("websiteForm").reset();
     $("websiteDetails").open = false;
-    if ($("sheet").classList.contains("open")) closeSheet();
+    if ($("sheet").classList.contains("open") && !$("settingsApp").classList.contains("hidden")) closeSheet();
     toast("Firma hinzugefügt");
   } catch (_) {
     toast("Die Firmenwebsite konnte nicht durchsucht werden");
@@ -2793,7 +2834,7 @@ function mailError(error) {
 }
 
 function openMail(view = "inbox", draft = null) {
-  const trigger = document.activeElement;
+  const trigger = view === "settings" ? $("gear") : document.activeElement;
   if (assistant) closeAssistant();
   mailView = {view,draft,trigger,threads:[],providers:[],account:null,loading:false,error:""};
   $("mailBackdrop").classList.add("open");
@@ -2801,23 +2842,39 @@ function openMail(view = "inbox", draft = null) {
   return mailView;
 }
 
-function closeMail() {
+function closeMail(restoreFocus = true) {
   const trigger = mailView?.trigger;
   clearTimeout(mailView?.pendingTimer);
   mailView = null;
   $("mailBackdrop").classList.remove("open");
   $("mailSheet").classList.remove("open");
   document.activeElement?.blur();
-  (trigger?.isConnected ? trigger : $("mailInbox")).focus();
+  if (restoreFocus) (trigger?.isConnected ? trigger : $("mailInbox")).focus({preventScroll:true});
 }
 
 function dismissMail() {
   if (mailView?.view !== "disconnect") return closeMail();
   if (mailView.connecting) return;
-  mailView.view = "inbox";
+  mailView.view = "settings";
   mailView.error = "";
   renderMail();
   $("mailContent").querySelector('[data-mail="disconnect"]')?.focus({preventScroll:true});
+}
+
+function backInMail() {
+  if (!mailView || mailView.connecting) return;
+  if (mailView.view === "connect") {
+    mailView.view = mailView.returnTo || "inbox";
+    mailView.error = "";
+    renderMail();
+    $("mailTitle").focus({preventScroll:true});
+  } else if (mailView.view === "settings") {
+    closeMail(false);
+    openSheet();
+    $("settingsMail").focus({preventScroll:true});
+  } else {
+    dismissMail();
+  }
 }
 
 function markConfirmedApplications(threads) {
@@ -2965,11 +3022,28 @@ function mailTimeline(thread) {
     (thread.pending ? '<p class="mail-status">Versand wird geprüft.</p>' : "");
 }
 
+function mailRow(thread) {
+  const unread = unreadReply(thread);
+  const status = unread ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : thread.latest_inbound
+    ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen";
+  const appearance = unread ? " has-reply new-reply" : thread.latest_inbound ? " has-reply" : "";
+  return `<button class="mail-row${appearance}" type="button" data-mail="thread" data-thread="${esc(thread.id)}">
+    <strong>${esc(thread.company)}</strong><span>${esc(thread.subject)}</span>
+    <span class="${thread.latest_inbound ? "mail-reply" : ""}">${status} · ${mailDate.format(thread.latest_at)}</span></button>`;
+}
+
 function renderMail() {
   const state = mailView;
   const content = $("mailContent");
   const alert = state.error ? `<p class="mail-status" role="alert">${esc(state.error)}</p>` : "";
-  $("mailTitle").textContent = state.view === "compose" ? "Bewerbung prüfen" : state.view === "thread" ? (state.thread?.company || "Unterhaltung") : state.view === "connect" ? "E-Mail verbinden" : "Postfach";
+  const inbox = state.view === "inbox", threadOpen = state.view === "thread";
+  $("mailBack").classList.toggle("hidden", state.view !== "settings" && state.view !== "connect");
+  $("mailBack").disabled = !!state.connecting;
+  $("mailRefresh").classList.toggle("hidden", !inbox && !threadOpen);
+  $("mailRefresh").disabled = state.loading || !!state.threadLoading || !!state.sending || !!state.connecting;
+  $("mailRefresh").setAttribute("aria-label", threadOpen ? "Unterhaltung aktualisieren" : "Postfach aktualisieren");
+  $("mailTitle").textContent = state.view === "compose" ? "Bewerbung prüfen" : threadOpen ? (state.thread?.company || "Unterhaltung")
+    : state.view === "connect" ? "E-Mail verbinden" : state.view === "settings" ? "E-Mail-Verbindung" : "Postfach";
   if (state.view === "disconnect") {
     $("mailTitle").textContent = "E-Mail trennen?";
     const disabled = state.connecting ? "disabled" : "";
@@ -2978,8 +3052,18 @@ function renderMail() {
       <button class="primary" type="button" data-mail="confirm-disconnect" ${disabled}>Ja</button></div>`;
     return;
   }
+  if (state.view === "settings") {
+    content.innerHTML = `${alert}
+      ${state.account ? `<div class="mail-account"><span>${esc(state.account.address)}</span>
+        <button class="link" type="button" data-mail="disconnect" ${state.loading ? "disabled" : ""}>E-Mail trennen</button></div>
+        ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}`
+      : state.loading ? '<p class="mail-status" role="status">E-Mail-Verbindung wird geladen …</p>'
+      : state.providers.length ? `<div class="mail-actions">${providerButtons(state)}</div>`
+      : '<button type="button" class="link" data-mail="retry-settings">Erneut versuchen</button>'}`;
+    return;
+  }
   if (state.view === "connect") {
-    content.innerHTML = `<button type="button" class="link" data-mail="back">Zurück</button>${alert}
+    content.innerHTML = `${alert}
       <p>Bestätige die Anmeldung im Browser. Kopiere den Code und füge ihn hier ein.</p>
       <form id="confirmMail" autocomplete="off"><label class="lbl" for="mailCode">Bestätigungscode</label>
       <input id="mailCode" name="code" autocapitalize="none" spellcheck="false" maxlength="24" required>
@@ -3005,7 +3089,7 @@ function renderMail() {
   }
   if (state.view === "thread") {
     const thread = state.thread;
-    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Postfach</button><button class="link" type="button" data-mail="refresh-thread">Aktualisieren</button></div>${alert}
+    content.innerHTML = `<div class="mail-actions"><button class="link" type="button" data-mail="inbox">‹ Postfach</button></div>${alert}
       ${state.threadLoading ? '<p class="mail-status" role="status">Unterhaltung wird geladen …</p>' : ""}
       ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
       ${thread ? `<p class="hint">${esc(thread.subject)}</p><div id="mailTimeline">${mailTimeline(thread)}</div>
@@ -3018,14 +3102,11 @@ function renderMail() {
     return;
   }
   content.innerHTML = `${alert}${state.loading ? '<p class="mail-status" role="status">Postfach wird aktualisiert …</p>' : ""}
-    ${state.account ? `<div class="mail-actions"><span class="hint">${esc(state.account.address)}</span><button class="link" type="button" data-mail="refresh">Aktualisieren</button></div>
-      ${state.reconnect ? providerButtons(state,"erneut verbinden") : ""}
-      ${state.threads.map(thread=>`<button class="mail-row" type="button" data-mail="thread" data-thread="${esc(thread.id)}"><strong>${esc(thread.company)}</strong>
-        <span>${esc(thread.subject)}</span><span class="${thread.latest_inbound ? "mail-reply" : ""}">${unreadReply(thread) ? "Neue Antwort" : thread.pending ? "Versand wird geprüft" : thread.latest_inbound ? "Antwort erhalten" : thread.sent ? "Wartet auf Antwort" : "Versand fehlgeschlagen"} · ${mailDate.format(thread.latest_at)}</span></button>`).join("")}
-      ${state.threads.length || state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}
-      <div class="mail-actions"><button class="link" type="button" data-mail="disconnect" ${state.loading ? "disabled" : ""}>E-Mail trennen</button></div>`
+    ${state.account ? `${state.reconnect ? `<div class="mail-actions">${providerButtons(state,"erneut verbinden")}</div>` : ""}
+      ${state.threads.length ? `<div class="mail-rows">${state.threads.map(mailRow).join("")}</div>`
+      : state.loading ? "" : '<p class="hint">Deine hier gesendeten Bewerbungen erscheinen in dieser Liste.</p>'}`
     : state.providers.length ? `<p>Verbinde dein Postfach, um Bewerbungen zu senden und Antworten hier zu sehen.</p><div class="mail-actions">${providerButtons(state)}</div>`
-    : state.loading ? "" : '<button class="link" type="button" data-mail="refresh">Erneut versuchen</button>'}`;
+    : ""}`;
 }
 
 async function refreshOpenMailThread(state, id, revision) {
@@ -3137,7 +3218,14 @@ async function submitMail(state, reply) {
 
 $("mailInbox").onclick = () => refreshMail(openMail());
 $("mailClose").onclick = $("mailBackdrop").onclick = dismissMail;
-$("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); dismissMail(); } });
+$("mailBack").onclick = backInMail;
+$("mailRefresh").onclick = () => {
+  const state = mailView;
+  if (!state) return;
+  if (state.view === "thread") return showMailThread(state,state.threadId);
+  if (state.view === "inbox") return refreshMail(state);
+};
+$("mailSheet").addEventListener("keydown", event => { if (event.key === "Escape") { event.preventDefault(); backInMail(); } });
 $("mailContent").onclick = async event => {
   const button = event.target.closest("button[data-mail]");
   const state = mailView;
@@ -3163,20 +3251,18 @@ $("mailContent").onclick = async event => {
     const {recipient,subject,body} = state.draft;
     closeMail();
     openApplicationMail(recipient,subject,body);
-  } else if (action === "back") {
-    state.view = state.returnTo || "inbox";
-    state.error = "";
-    renderMail();
-  } else if (action === "inbox" || action === "refresh") {
+  } else if (action === "inbox") {
     state.view = "inbox";
     await refreshMail(state);
-  } else if (action === "thread" || action === "refresh-thread") {
-    await showMailThread(state,button.dataset.thread || state.threadId);
+  } else if (action === "retry-settings") {
+    await refreshMail(state);
+  } else if (action === "thread") {
+    await showMailThread(state,button.dataset.thread);
   } else if (action === "remove-file") {
     recipientAndAttachment(state);
     state.attachment = null;
     renderMail();
-  } else if (action === "disconnect") {
+  } else if (action === "disconnect" && state.view === "settings" && state.account && !state.loading) {
     state.view = "disconnect";
     state.error = "";
     renderMail();
@@ -3184,7 +3270,7 @@ $("mailContent").onclick = async event => {
     $("mailContent").querySelector('[data-mail="cancel-disconnect"]').focus({preventScroll:true});
   } else if (action === "cancel-disconnect") {
     dismissMail();
-  } else if (action === "confirm-disconnect") {
+  } else if (action === "confirm-disconnect" && state.view === "disconnect") {
     state.connecting = true;
     state.error = "";
     renderMail();
@@ -3195,7 +3281,7 @@ $("mailContent").onclick = async event => {
       state.account = null;
       state.threads = [];
       state.reconnect = false;
-      state.view = "inbox";
+      state.view = "settings";
     } catch (error) { state.error = mailError(error); }
     finally { state.connecting = false; if (mailView === state) renderMail(); }
   }
@@ -3229,18 +3315,56 @@ $("mailContent").onsubmit = async event => {
 };
 
 /* ---------- Einstellungen */
-function openSheet(){
-  $("tName").value = tpl.name; $("tSubj").value = tpl.subj; $("tBody").value = tpl.body;
-  $("websiteDetails").classList.toggle("hidden", !S.q);
+const settingsPages = {
+  settingsHome:"Einstellungen",
+  settingsTemplate:"Bewerbungsvorlage",
+  settingsCoach:"AI-Coach",
+  settingsApp:"App-Informationen"
+};
+
+function showSettingsPage(page) {
+  for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
+  $("settingsTitle").textContent = settingsPages[page];
+  $("settingsBack").classList.toggle("hidden", page === "settingsHome");
+  if (page === "settingsTemplate") {
+    $("tName").value = tpl.name;
+    $("tSubj").value = tpl.subj;
+    $("tBody").value = tpl.body;
+  }
+  if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
-  $("bd").classList.add("open"); $("sheet").classList.add("open");
+  $("settingsTitle").focus({preventScroll:true});
 }
-function closeSheet(){ $("bd").classList.remove("open"); $("sheet").classList.remove("open"); document.activeElement && document.activeElement.blur(); }
+function openSheet(){
+  $("bd").classList.add("open"); $("sheet").classList.add("open");
+  showSettingsPage("settingsHome");
+}
+function closeSheet(restoreFocus = true){
+  $("bd").classList.remove("open");
+  $("sheet").classList.remove("open");
+  document.activeElement?.blur();
+  if (restoreFocus) $("gear").focus({preventScroll:true});
+}
+function backInSettings() {
+  if ($("settingsHome").classList.contains("hidden")) showSettingsPage("settingsHome");
+  else closeSheet();
+}
+function setSearchEditing(editing) {
+  render.editing = editing;
+  render();
+  if (editing) {
+    setStatus("");
+    $("b").focus();
+  } else {
+    statusSummary();
+    $("edit").focus({preventScroll:true});
+  }
+}
 window.handleBack = function(){
-  if (mailView) { dismissMail(); return true; }
+  if (mailView) { backInMail(); return true; }
   if (assistant) { closeAssistant(); return true; }
-  if ($("sheet").classList.contains("open")) { closeSheet(); return true; }
-  if (render.editing && S.q) { render.editing = false; render(); statusSummary(); return true; }
+  if ($("sheet").classList.contains("open")) { backInSettings(); return true; }
+  if (render.editing && S.q) { if (!$("edit").disabled) setSearchEditing(false); return true; }
   if ($("mapCompanySheet").classList.contains("open")) { closeMapCompany(); return true; }
   return false;
 };
@@ -3281,7 +3405,7 @@ $("bx").onclick = () => { $("b").value = ""; renderChips(); $("b").focus(); };
 $("chips").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; $("b").value = c.dataset.v; renderChips(); };
 $("seg").onclick = e => { const b = e.target.closest("button"); if (!b) return; radius = +b.dataset.r; renderSeg(); };
 $("go").onclick = doSearch;
-$("edit").onclick = () => { render.editing = true; render(); setStatus(""); $("b").focus(); };
+$("edit").onclick = () => setSearchEditing(!render.editing);
 $("filters").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; filter = c.dataset.f; render(); };
 $("list").onclick = $("mapCompanyContent").onclick = e => {
   const b = e.target.closest(".act"); if (!b) return;
@@ -3306,7 +3430,19 @@ $("viewseg").onclick = e => {
   if (view === "map") window.scrollTo(0,0);
 };
 $("gear").onclick = openSheet;
-$("bd").onclick = closeSheet;
+$("bd").onclick = $("settingsClose").onclick = () => closeSheet();
+$("settingsBack").onclick = backInSettings;
+$("sheet").addEventListener("keydown", event => {
+  if (event.key === "Escape") { event.preventDefault(); backInSettings(); }
+});
+$("settingsMail").onclick = () => {
+  closeSheet(false);
+  refreshMail(openMail("settings"));
+  $("mailTitle").focus({preventScroll:true});
+};
+$("settingsTemplateLink").onclick = () => showSettingsPage("settingsTemplate");
+$("settingsCoachLink").onclick = () => showSettingsPage("settingsCoach");
+$("settingsAppLink").onclick = () => showSettingsPage("settingsApp");
 $("assistantBackdrop").onclick = closeAssistant;
 $("assistantClose").onclick = closeAssistant;
 $("assistantSheet").addEventListener("keydown", event => {
@@ -3365,13 +3501,19 @@ $("assistantContent").onclick = async e => {
     }
   }
 };
-$("tSave").onclick = () => { tpl = {name: $("tName").value.trim(), subj: $("tSubj").value, body: $("tBody").value}; store.set("jr_tpl", tpl); closeSheet(); toast("Gespeichert"); };
+$("tSave").onclick = () => {
+  tpl = {name: $("tName").value.trim(), subj: $("tSubj").value, body: $("tBody").value};
+  store.set("jr_tpl", tpl);
+  showSettingsPage("settingsHome");
+  toast("Gespeichert");
+};
 $("upBtn").onclick = () => pendingUpdate ? installUpdate() : checkUpdate(true);
 $("bannerB").onclick = installUpdate;
 $("upReset").onclick = () => { stashStorage(); Native.resetWeb(); Native.reload(); };
 $("tReset").onclick = () => { $("tSubj").value = DEFAULT_TPL.subj; $("tBody").value = DEFAULT_TPL.body; };
 
 /* ---------- Start */
+$("settingsVersion").textContent = `Version ${APP_VERSION}`;
 S.items.forEach(x => delete x.state);
 $("a").value = chosenLoc ? chosenLoc.label : store.get("jr_addr", "");
 if (S.q) $("b").value = S.q.term;
