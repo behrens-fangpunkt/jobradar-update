@@ -149,13 +149,15 @@ function mimeMessage(from, message, ref, nonce, replyTo) {
     parts.push(`In-Reply-To: ${replyTo.messageId}`, `References: ${[...new Set([...replyTo.references,replyTo.messageId])].join("\r\n ")}`);
   }
   const text = ["Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",wrap64(base64(encoder.encode(message.body)))];
-  if (message.attachment) {
+  if (message.attachments.length) {
     const boundary = `jobradar-${nonce}`;
-    const {name,type,data} = message.attachment;
-    const encodedName = encodeURIComponent(name).replace(/[!'()*]/g,char=>"%" + char.charCodeAt(0).toString(16));
-    parts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`, "", `--${boundary}`, ...text,
-      `--${boundary}`, `Content-Type: ${type}`, "Content-Transfer-Encoding: base64",
-      `Content-Disposition: attachment; filename*=UTF-8''${encodedName}`, "", wrap64(data), `--${boundary}--`);
+    parts.push(`Content-Type: multipart/mixed; boundary="${boundary}"`, "", `--${boundary}`, ...text);
+    for (const {name,type,data} of message.attachments) {
+      const encodedName = encodeURIComponent(name).replace(/[!'()*]/g,char=>"%" + char.charCodeAt(0).toString(16));
+      parts.push(`--${boundary}`, `Content-Type: ${type}`, "Content-Transfer-Encoding: base64",
+        `Content-Disposition: attachment; filename*=UTF-8''${encodedName}`, "", wrap64(data));
+    }
+    parts.push(`--${boundary}--`);
   } else parts.push(...text);
   return base64url(encoder.encode(parts.join("\r\n")+"\r\n"));
 }
@@ -163,16 +165,20 @@ function mimeMessage(from, message, ref, nonce, replyTo) {
 export async function prepareOutlook(access, message, replyTo) {
   const recipient = {emailAddress:{address:message.recipient}};
   const body = {contentType:"text",content:message.body};
-  let draft;
-  if (replyTo) {
-    draft = await api("outlook",access,`/messages/${encodeURIComponent(replyTo.id)}/createReply`,"POST");
-    await api("outlook",access,`/messages/${encodeURIComponent(draft.id)}`,"PATCH",{body,toRecipients:[recipient],ccRecipients:[],bccRecipients:[]});
-  } else draft = await api("outlook",access,"/messages","POST",{subject:message.subject,body,toRecipients:[recipient]});
-  if (message.attachment) {
-    const {name,type,data} = message.attachment;
-    await api("outlook",access,`/messages/${encodeURIComponent(draft.id)}/attachments`,"POST",{
-      "@odata.type":"#microsoft.graph.fileAttachment",name,contentType:type,contentBytes:data
-    });
+  const draft = replyTo
+    ? await api("outlook",access,`/messages/${encodeURIComponent(replyTo.id)}/createReply`,"POST")
+    : await api("outlook",access,"/messages","POST",{subject:message.subject,body,toRecipients:[recipient]});
+  const path = `/messages/${encodeURIComponent(draft.id)}`;
+  try {
+    if (replyTo) await api("outlook",access,path,"PATCH",{body,toRecipients:[recipient],ccRecipients:[],bccRecipients:[]});
+    for (const {name,type,data} of message.attachments) {
+      await api("outlook",access,path + "/attachments","POST",{
+        "@odata.type":"#microsoft.graph.fileAttachment",name,contentType:type,contentBytes:data
+      });
+    }
+  } catch (error) {
+    await api("outlook",access,path,"DELETE").catch(() => {});
+    throw error;
   }
   return draft.id;
 }
