@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="38">
+<meta name="jr-version" content="39">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -2771,9 +2771,10 @@ function applicationVoice(tone) {
   if (value.startsWith("locker") || value === "freundlich") return "friendly";
   return value === "kurz und direkt" ? "direct" : "formal";
 }
-function applicationGreeting(x, tone = coachProfile.tone) {
+function applicationGreeting(x, profile = coachProfile) {
   const person = x.c?.person;
-  const voice = applicationVoice(tone);
+  const formalSalutation = profile.salutation === "Förmlich";
+  const voice = formalSalutation ? "formal" : applicationVoice(profile.tone);
   if (voice !== "formal") {
     const friendly = voice === "friendly" || voice === "concise-friendly";
     const hello = friendly ? "Hallo" : "Guten Tag";
@@ -2781,7 +2782,7 @@ function applicationGreeting(x, tone = coachProfile.tone) {
     const named = [person.address, person.title, person.address ? person.surname : person.name].filter(Boolean).join(" ");
     return `${hello} ${named}`;
   }
-  let greeting = `Guten Tag an das Team von ${x.name}`;
+  let greeting = formalSalutation ? `Sehr geehrtes Team von ${x.name}` : `Guten Tag an das Team von ${x.name}`;
   if (person) {
     const named = [person.title, person.address ? person.surname : person.name].filter(Boolean).join(" ");
     if (person.address === "Frau") greeting = `Sehr geehrte Frau ${named}`;
@@ -2887,14 +2888,14 @@ function prepareApplicationBatch(batch) {
   const selected = batchCandidates(batch).filter(company=>batch.selected.has(company.id));
   if (!selected.length) return showApplicationList(batch);
   const next = new Map();
-  const {role,goal,availability,tone,study,highlight} = coachProfile;
-  const profile = {role,goal,availability,tone,study,highlight};
+  const {role,goal,availability,tone,salutation,study,highlight} = coachProfile;
+  const profile = {role,goal,availability,tone,salutation,study,highlight};
   for (const x of selected) {
     const industry = applicationIndustry(x);
     const answers = savedApplicationAnswers(industry) || {role:"offen",experience:"skip",time:"skip",strength:"skip"};
     const content = templateDraft(x,answers,profile);
     const company = {id:x.id,name:x.name,kind:x.kind,address:x.address,website:x.website,websiteDescription:x.c?.websiteDescription};
-    const greeting = applicationGreeting(x);
+    const greeting = applicationGreeting(x,profile);
     next.set(x.id,{company,recipient:emailsOf(x)[0],industry,answers,profile,subject:content.subject,
       greeting,signature:tpl.name,body:formatApplicationDraft(content.body,greeting,tpl.name,profile),
       reviewed:false,queued:true,source:"Vorlage"});
@@ -3226,7 +3227,7 @@ async function generateAssistantDraft(useAI) {
   await contact;
   if (assistant !== state) return;
   const content = generated || templateDraft(x, answers, profile);
-  const body = formatApplicationDraft(content.body,applicationGreeting(x,profile.tone),tpl.name,profile);
+  const body = formatApplicationDraft(content.body,applicationGreeting(x,profile),tpl.name,profile);
   state.draft = {subject:content.subject, body, source:generated ? "KI-Entwurf" : config ? "KI gerade nicht verfügbar · Entwurf aus Vorlage" : "Entwurf aus Vorlage"};
   state.busy = false;
   renderAssistant();
@@ -3459,10 +3460,11 @@ const coachTones = ["Kurz, freundlich und direkt","Kurz und direkt","Locker und 
 const coachFields = {
   role:{label:"Arbeitsform",limit:160}, goal:{label:"Suchziel",limit:160},
   availability:{label:"Verfügbarkeit",limit:160}, tone:{label:"Schreibstil",limit:160},
+  salutation:{label:"Anrede",limit:20},
   study:{label:"Studienfach",limit:80}, highlight:{label:"Immer erwähnen",limit:160}
 };
 const coachProfileKey = "jr_coach_profile";
-const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",study:"",highlight:"",facts:[],ready:false},store.get(coachProfileKey,null));
+const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",salutation:"",study:"",highlight:"",facts:[],ready:false},store.get(coachProfileKey,null));
 let coachCV = null, coachCVRevision = 0;
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set(coachProfileKey,coachProfile);
@@ -3471,6 +3473,7 @@ const coachChat = {
   messages:[], proposal:null, ...store.get(coachChatKey,null),
   pending:"", input:"", error:"", activation:""
 };
+if (coachChat.proposal && !Object.hasOwn(coachChat.proposal.base,"salutation")) coachChat.proposal = null;
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
 const androidCameraInstaller = "https://raw.githubusercontent.com/behrens-fangpunkt/jobradar-update/b31f8927cdd94db0218a8b7648a04002b5bfe7e5/downloads/JobRadr-Android-v33.apk";
 const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:""};
@@ -3488,6 +3491,7 @@ function coachPreferencesFromForm(form) {
   const read = (key,limit = 160) => String(values.get(key) || "").trim().replace(/\s+/g," ").slice(0,limit);
   return {
     role:read("role"),goal:read("goal"),availability:read("availability"),tone:read("tone"),
+    salutation:read("salutation") === "Förmlich" ? "Förmlich" : "",
     study:read("study",80).replace(/^ich studiere\s+/i,"").replace(/[.!?]+$/,"").trim(),
     highlight:read("highlight")
   };
@@ -3520,10 +3524,16 @@ function positionCoachChat() {
 window.visualViewport?.addEventListener("resize",positionCoachChat);
 window.visualViewport?.addEventListener("scroll",positionCoachChat);
 
+function coachProposalControl(updates) {
+  const keys = Object.keys(updates);
+  if (keys.length !== 1) return "";
+  return {tone:"Schreibstil",salutation:"Anrede"}[keys[0]] || "";
+}
+
 function renderCoachChat(scroll = false) {
   const box = $("settingsCoachChat");
   const {messages,pending,proposal,error,activation,input} = coachChat;
-  const styleOnly = proposal && Object.keys(proposal.updates).length === 1 && Object.hasOwn(proposal.updates,"tone");
+  const control = proposal ? coachProposalControl(proposal.updates) : "";
   box.innerHTML = `<div class="coach-chat-thread" id="coachChatThread">${messages.length ? "" : `<p class="coach-bubble">Was möchtest du in deinen Bewerbungen sagen oder anders formulieren?</p>
     ${Object.values(coachChatProfile()).some(Boolean) ? `<div class="coach-actions"><button class="chip" type="button" data-coach-chat="polish" ${pending ? "disabled" : ""}>Profil überarbeiten</button></div>` : ""}`}
     <div class="coach-chat-log" role="log" aria-label="Gespräch">${messages.map(({role,text})=>
@@ -3533,8 +3543,8 @@ function renderCoachChat(scroll = false) {
     ${proposal ? `<section class="coach-block coach-chat-proposal">
       <h3 class="coach-title">Vorschlag für dein Profil</h3>
       <dl class="coach-profile">${Object.entries(proposal.updates).map(([key,value])=>
-        `<div><dt>${coachFields[key].label}</dt><dd>${value ? esc(value) : "Entfernen"}</dd></div>`).join("")}</dl>
-      <div class="coach-actions"><button class="link" type="button" data-coach-chat="apply" ${pending ? "disabled" : ""}>${styleOnly ? "Schreibstil übernehmen" : "Übernehmen"}</button>
+        `<div><dt>${coachFields[key].label}</dt><dd>${value ? esc(value) : key === "salutation" ? "Automatisch" : "Entfernen"}</dd></div>`).join("")}</dl>
+      <div class="coach-actions"><button class="link" type="button" data-coach-chat="apply" ${pending ? "disabled" : ""}>${control ? `${control} übernehmen` : "Übernehmen"}</button>
       <button class="link" type="button" data-coach-chat="discard" ${pending ? "disabled" : ""}>Verwerfen</button></div>
     </section>` : ""}
     ${error ? `<p class="coach-bubble" role="alert">${esc(error)}</p>` : ""}
@@ -3554,6 +3564,9 @@ function renderCoachChat(scroll = false) {
 async function sendCoachChat(message) {
   const text = message.trim().slice(0,1200);
   if (coachChat.pending || !text) return;
+  const question = coachChat.proposal?.question;
+  if (question === coachChat.messages.at(-1)?.text && /übernehmen\?$/i.test(question || "") &&
+      /^(?:ja(?:,? bitte)?|jup|jep|yes|bitte übernehmen)[.!]?$/i.test(text)) return applyCoachProposal(text);
   const base = coachChatProfile();
   const messages = [...coachChat.messages.slice(-10),{role:"user",text}];
   coachChat.pending = text;
@@ -3578,9 +3591,10 @@ async function sendCoachChat(message) {
     for (const [key,{limit}] of Object.entries(coachFields)) {
       const value = result.profile?.[key];
       if (typeof value === "string" && value.length <= limit && value !== base[key] &&
-          (key !== "tone" || !value || coachTones.includes(value))) updates[key] = value;
+          (key !== "tone" || !value || coachTones.includes(value)) &&
+          (key !== "salutation" || !value || value === "Förmlich")) updates[key] = value;
     }
-    if (Object.keys(updates).length) coachChat.proposal = {base,updates};
+    if (Object.keys(updates).length) coachChat.proposal = {base,updates,question:result.message};
     coachChat.messages = [...messages,{role:"assistant",text:result.message}];
     persistCoachChat();
   } catch (error) {
@@ -3591,6 +3605,25 @@ async function sendCoachChat(message) {
     coachChat.pending = "";
     if (!$("settingsCoachChat").classList.contains("hidden")) renderCoachChat(true);
   }
+}
+
+function applyCoachProposal(confirmation = "") {
+  const {base,updates} = coachChat.proposal;
+  const current = coachChatProfile();
+  if (Object.keys(updates).some(key=>current[key] !== base[key])) {
+    coachChat.error = "Dein Profil wurde inzwischen geändert. Bitte den Coach um einen neuen Vorschlag.";
+  } else if (!updateCoachPreferences(updates)) return;
+  else {
+    const saved = `${coachProposalControl(updates) || "Profil"} übernommen`;
+    coachChat.error = "";
+    if (confirmation) {
+      coachChat.messages = [...coachChat.messages.slice(-10),{role:"user",text:confirmation},{role:"assistant",text:`${saved}.`}];
+      coachChat.input = "";
+    } else toast(saved);
+  }
+  coachChat.proposal = null;
+  persistCoachChat();
+  renderCoachChat(true);
 }
 
 $("settingsCoachChat").oninput = event => {
@@ -3605,15 +3638,8 @@ $("settingsCoachChat").onclick = event => {
   if (!action || coachChat.pending) return;
   if (action === "share") return shareActivationCode(coachChat.activation);
   if (action === "polish") return sendCoachChat("Schau dir bitte die Angaben in meinem Profil an. Formuliere unvollständige Notizen so, wie ich sie in einer Bewerbung schreiben würde. Frage nach, wenn etwas unklar ist.");
-  if (action === "apply") {
-    const {base,updates} = coachChat.proposal;
-    const current = coachChatProfile();
-    if (Object.keys(updates).some(key=>current[key] !== base[key])) {
-      coachChat.error = "Dein Profil wurde inzwischen geändert. Bitte den Coach um einen neuen Vorschlag.";
-    } else if (!updateCoachPreferences(updates)) return;
-    else { coachChat.error = ""; toast(Object.keys(updates).length === 1 && Object.hasOwn(updates,"tone") ? "Schreibstil übernommen" : "Profil übernommen"); }
-    coachChat.proposal = null;
-  } else if (action === "discard") coachChat.proposal = null;
+  if (action === "apply") return applyCoachProposal();
+  if (action === "discard") coachChat.proposal = null;
   else if (action === "reset") Object.assign(coachChat,{messages:[],proposal:null,input:"",error:"",activation:""});
   persistCoachChat();
   renderCoachChat(action !== "reset");
@@ -3624,7 +3650,7 @@ function renderCoachDraftPreview(form) {
   const example = {name:"Beispielbetrieb"};
   const draft = templateDraft(example,{},profile);
   $("coachPreviewSubject").textContent = draft.subject;
-  $("coachPreviewBody").textContent = formatApplicationDraft(draft.body,applicationGreeting(example,profile.tone),tpl.name,profile);
+  $("coachPreviewBody").textContent = formatApplicationDraft(draft.body,applicationGreeting(example,profile),tpl.name,profile);
 }
 
 function renderCoachPreferences() {
@@ -3650,6 +3676,8 @@ function renderCoachPreferences() {
         <input id="coachHighlight" name="highlight" maxlength="160" value="${esc(coachProfile.highlight)}" placeholder="z. B. Ich habe Erfahrung im Verkauf."></div>
       <div class="coach-settings-field"><label class="lbl" for="coachTone">Schreibstil</label>
         <select id="coachTone" name="tone">${tones.map(option=>`<option${option===tone ? " selected" : ""}>${esc(option)}</option>`).join("")}</select></div>
+      <div class="coach-settings-field"><label class="lbl" for="coachSalutation">Anrede</label>
+        <select id="coachSalutation" name="salutation"><option value="">Automatisch</option><option${coachProfile.salutation === "Förmlich" ? " selected" : ""}>Förmlich</option></select></div>
     </section>
     <details class="coach-block coach-preview"><summary>Vorschau der Standardbewerbung</summary>
       <p><strong id="coachPreviewSubject"></strong></p><p id="coachPreviewBody" class="coach-preview-body"></p></details>
