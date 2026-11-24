@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="34">
+<meta name="jr-version" content="35">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -869,6 +869,16 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .coach-fact span,.coach-block summary{overflow-wrap:anywhere}
 .coach-fact input[type=text]{margin:5px 0 0}
 .coach-fact-review{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.coach-settings-form{display:grid;gap:12px}
+.coach-settings-form .coach-block{display:grid;gap:10px}
+.coach-settings-field{display:grid;gap:4px;min-width:0}
+.coach-settings-field .lbl{margin:0}
+.coach-settings-form input,.coach-settings-form select{width:100%;min-height:44px;background:var(--card)}
+.coach-settings-form select{border:1.5px solid transparent;border-radius:12px;padding:10px 12px;color:var(--ink);font:inherit}
+.coach-settings-form select:focus-visible{outline:2px solid var(--acc)}
+.coach-preview summary{min-height:44px;padding:10px 0;cursor:pointer;font-weight:600}
+.coach-preview p{margin:0;line-height:1.45;overflow-wrap:anywhere}
+.coach-preview-body{white-space:pre-wrap}
 .portrait-source{position:relative;display:inline-flex;align-items:center;min-height:44px;cursor:pointer}
 .portrait-source input[type=file]{position:absolute;inset:0;width:100%;height:100%;padding:0;opacity:0;cursor:pointer}
 .portrait-source:focus-within{outline:2px solid var(--acc);outline-offset:2px;border-radius:6px}
@@ -1182,6 +1192,7 @@ html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
   </section>
   <section id="settingsDocuments" class="hidden"></section>
   <section id="settingsCoach" class="coach-panel hidden" aria-label="AI-Coach"></section>
+  <section id="settingsCoachPreferences" class="hidden"></section>
   <input class="hidden" id="portraitCapture" type="file" accept="image/*" capture="user">
   <input class="hidden" id="portraitFile" type="file" accept="image/*">
   <section id="settingsApp" class="hidden">
@@ -2736,8 +2747,21 @@ async function enrichContacts(searchState) {
   render(run.changed);
 }
 function fill(s, x){ return s.replace(/\{firma\}/g, () => x.name).replace(/\{name\}/g, () => tpl.name || ""); }
-function applicationGreeting(x) {
+function applicationVoice(tone) {
+  const value = norm(tone);
+  if (value.startsWith("locker") || value === "freundlich") return "friendly";
+  return value === "kurz und direkt" ? "direct" : "formal";
+}
+function applicationGreeting(x, tone = coachProfile.tone) {
   const person = x.c?.person;
+  const voice = applicationVoice(tone);
+  if (voice !== "formal") {
+    const friendly = voice === "friendly";
+    const hello = friendly ? "Hallo" : "Guten Tag";
+    if (!person) return friendly ? `Hallo liebes Team von ${x.name}` : `Guten Tag an das Team von ${x.name}`;
+    const named = [person.address, person.title, person.address ? person.surname : person.name].filter(Boolean).join(" ");
+    return `${hello} ${named}`;
+  }
   let greeting = `Guten Tag an das Team von ${x.name}`;
   if (person) {
     const named = [person.title, person.address ? person.surname : person.name].filter(Boolean).join(" ");
@@ -2772,10 +2796,16 @@ async function applyByMail(x) {
     const mail = emailsOf(x)[0];
     if (!mail) { toast("Keine passende E-Mail-Adresse gefunden"); return; }
     if (!tpl.name) toast("Tipp: Oben rechts deinen Namen eintragen");
-    const profile = specialtyProfile(S.q?.term);
-    const subject = profile && tpl.subj === DEFAULT_TPL.subj
-      ? `Initiativbewerbung – ${profile.label}` : fill(tpl.subj, x);
-    await openMailDraft(x, mail, subject, applicationBody(tpl.body, x));
+    const industry = applicationIndustry(x);
+    const answers = savedApplicationAnswers(industry);
+    const personalized = coachProfile.ready ? templateDraft(x, answers || {}) : null;
+    const specialty = specialtyProfile(S.q?.term);
+    const subject = tpl.subj !== DEFAULT_TPL.subj ? fill(tpl.subj, x)
+      : personalized?.subject || (specialty ? `Initiativbewerbung – ${specialty.label}` : fill(tpl.subj, x));
+    const body = personalized && tpl.body === DEFAULT_TPL.body
+      ? formatApplicationDraft(personalized.body, applicationGreeting(x), tpl.name)
+      : applicationBody(tpl.body, x);
+    await openMailDraft(x, mail, subject, body);
   } finally {
     applicationsInProgress.delete(x);
   }
@@ -2838,14 +2868,16 @@ function prepareApplicationBatch(batch) {
   const selected = batchCandidates(batch).filter(company=>batch.selected.has(company.id));
   if (!selected.length) return showApplicationList(batch);
   const next = new Map();
+  const {role,goal,availability,tone,study,highlight} = coachProfile;
+  const profile = {role,goal,availability,tone,study,highlight};
   for (const x of selected) {
     const industry = applicationIndustry(x);
     const answers = savedApplicationAnswers(industry) || {role:"offen",experience:"skip",time:"skip",strength:"skip"};
-    const content = templateDraft(x,answers);
+    const content = templateDraft(x,answers,profile);
     const company = {id:x.id,name:x.name,kind:x.kind,address:x.address,website:x.website,websiteDescription:x.c?.websiteDescription};
     const greeting = applicationGreeting(x);
-    next.set(x.id,{company,recipient:emailsOf(x)[0],industry,answers,subject:content.subject,
-      greeting,signature:tpl.name,body:formatApplicationDraft(content.body,greeting,tpl.name),
+    next.set(x.id,{company,recipient:emailsOf(x)[0],industry,answers,profile,subject:content.subject,
+      greeting,signature:tpl.name,body:formatApplicationDraft(content.body,greeting,tpl.name,profile),
       reviewed:false,queued:true,source:"Vorlage"});
   }
   for (const [id,draft] of preparedDrafts) next.set(id,draft);
@@ -2906,7 +2938,8 @@ async function generatePreparedDrafts() {
       const draft = [...preparedDrafts.values()].find(item=>item.queued);
       if (!draft) return;
       let generated;
-      try { generated = await aiDraft(config,draft.company,draft.industry,draft.answers,true); }
+      const profile = draft.profile || coachProfile;
+      try { generated = await aiDraft(config,draft.company,draft.industry,draft.answers,profile,true); }
       catch (error) {
         if (error.message === "draft_rate_limit") {
           preparedDraftRetry = setTimeout(()=>{ preparedDraftRetry = null; generatePreparedDrafts(); },61000);
@@ -2915,7 +2948,7 @@ async function generatePreparedDrafts() {
       }
       const id = draft.company.id;
       if (preparedDrafts.get(id) !== draft) continue;
-      const changes = generated ? {subject:generated.subject,body:formatApplicationDraft(generated.body,draft.greeting,draft.signature),source:"KI-Entwurf"} : {};
+      const changes = generated ? {subject:generated.subject,body:formatApplicationDraft(generated.body,draft.greeting,draft.signature,profile),source:"KI-Entwurf"} : {};
       if (!updatePreparedDraft(id,{...changes,queued:false})) return;
       renderPreparedMailDrafts();
     }
@@ -3034,17 +3067,37 @@ function closeAssistant() {
   document.activeElement?.blur();
   (trigger?.isConnected ? trigger : document.querySelector(".card [data-a=assistant]"))?.focus();
 }
-function templateDraft(x, answers) {
-  const role = {minijob:"einem Minijob", werkstudent:"einer Stelle als Werkstudentin", teilzeit:"einer Teilzeitstelle", praktikum:"einem Praktikum"}[answers.role];
-  const title = APPLICATION_QUESTIONS[0].options[answers.role];
+function templateDraft(x, answers, profile = coachProfile) {
+  const roles = {
+    minijob:["Minijob","einem Minijob"], werkstudent:["Werkstudentenstelle","einer Werkstudentenstelle"],
+    teilzeit:["Teilzeit","einer Teilzeitstelle"], praktikum:["Praktikum","einem Praktikum"],
+    vollzeit:["Vollzeit","einer Vollzeitstelle"], ausbildung:["Ausbildung","einem Ausbildungsplatz"],
+    aushilfe:["Aushilfe","einer Stelle als Aushilfe"], nebenjob:["Nebenjob","einem Nebenjob"]
+  };
+  const selectedRole = norm(profile.role).replace(/^werkstudentin$/, "werkstudent");
+  const roleKey = Object.hasOwn(roles,selectedRole) ? selectedRole : answers.role;
+  const [title, role] = Object.hasOwn(roles,roleKey) ? roles[roleKey] : [];
   const subject = role ? `Initiativbewerbung – ${title}` : "Initiativbewerbung";
-  const opening = role ? `ich bin auf der Suche nach ${role} und würde gerne bei ${x.name} mitarbeiten.`
-    : `ich interessiere mich für eine Mitarbeit bei ${x.name} und möchte mich bei Ihnen initiativ bewerben.`;
+  const introduction = profile.study ? `ich studiere ${profile.study} und ` : "ich ";
+  const opening = role ? `${introduction}suche nach ${role}. Bei ${x.name} würde ich gern mitarbeiten.`
+    : `${introduction}würde gern bei ${x.name} mitarbeiten.`;
   const experience = {einstieg:"Ich möchte in die Branche einsteigen.", erfahrung:"Ich bringe Erfahrung in der Branche mit."}[answers.experience];
-  const availability = {flexibel:"Zeitlich bin ich flexibel.", morgens:"Ich kann vormittags arbeiten.", abends:"Ich kann abends arbeiten.", wochenende:"Ich kann am Wochenende arbeiten."}[answers.time];
+  const availability = applicationAvailability(profile.availability,answers.time);
   const strength = {zuverlaessig:"Ich arbeite zuverlässig.", organisiert:"Ich arbeite strukturiert und organisiert.", lernbereit:"Ich arbeite mich gern in neue Aufgaben ein.", kommunikativ:"Ich kommuniziere offen und gerne."}[answers.strength];
   const facts = [experience, strength, availability].filter(Boolean).join(" ");
-  return {subject, body:[opening, facts, "Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."].filter(Boolean).join("\n\n")};
+  const closing = {
+    friendly:"Haben Sie gerade oder demnächst Bedarf an Unterstützung? Ich freue mich, von Ihnen zu hören.",
+    direct:"Gibt es bei Ihnen eine passende Möglichkeit zur Mitarbeit?",
+    formal:"Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."
+  }[applicationVoice(profile.tone)];
+  return {subject, body:[opening, facts, closing].filter(Boolean).join("\n\n")};
+}
+
+function applicationAvailability(value,time) {
+  if (!value) return {flexibel:"Zeitlich bin ich flexibel.", morgens:"Ich kann vormittags arbeiten.", abends:"Ich kann abends arbeiten.", wochenende:"Ich kann am Wochenende arbeiten."}[time];
+  if (/^(?:ich\b|meine\b)/i.test(value)) return applicationSentence(value);
+  const phrase = value.replace(/^[A-ZÄÖÜ]/, char=>char.toLowerCase()).replace(/[.!?]+$/, "");
+  return `Ich kann ${phrase} arbeiten.`;
 }
 const genericApplicationGreeting = /^Sehr geehrte Damen und Herren\s*[,!.]?$/i;
 const applicationSalutation = /^(?:(?:Guten (?:Tag|Morgen|Abend)|Hallo|Moin|Hi|Liebes Team|Sehr geehrte(?:r|s)? (?:Frau|Herr|Team)\b)[^,!?]*[,!])$/i;
@@ -3065,10 +3118,31 @@ function cleanPreparedGreeting(draft) {
   return lines.join("\n");
 }
 
-function formatApplicationDraft(body,greeting,name) {
+function applicationSentence(text) {
+  const sentence = text.trim().replace(/^./u, char=>char.toLocaleUpperCase("de"));
+  return sentence && !/[.!?]$/.test(sentence) ? sentence + "." : sentence;
+}
+
+function formatApplicationDraft(body,greeting,name,profile = coachProfile) {
   const lines = body.trim().split(/\r?\n/);
   while (lines.length && (!lines[0].trim() || genericApplicationGreeting.test(lines[0].trim()) || applicationSalutation.test(lines[0].trim()))) lines.shift();
-  return [greeting + ",",lines.join("\n"),["Mit freundlichen Grüßen",name].filter(Boolean).join("\n")].join("\n\n");
+  const text = lines.join("\n");
+  const paragraphs = text.split(/\n\s*\n/).filter(Boolean);
+  const study = searchText(profile.study);
+  const mentionsStudy = study && text.split(/[.!?\n]+/).some(sentence=>{
+    const words = searchText(sentence);
+    return words.includes(study) && /studier|studium|student/.test(words);
+  });
+  if (study && !mentionsStudy) {
+    if (paragraphs.length) paragraphs[0] = applicationSentence(paragraphs[0]);
+    paragraphs.unshift(`ich studiere ${profile.study}.`);
+  }
+  const highlight = searchText(profile.highlight);
+  if (highlight && !searchText(text).includes(highlight)) {
+    paragraphs.splice(1,0,applicationSentence(profile.highlight));
+  }
+  const signoff = applicationVoice(profile.tone) === "formal" ? "Mit freundlichen Grüßen" : "Viele Grüße";
+  return [greeting + ",",...paragraphs,[signoff,name].filter(Boolean).join("\n")].join("\n\n");
 }
 
 async function applicationWebsiteDescription(x) {
@@ -3085,20 +3159,24 @@ async function applicationWebsiteDescription(x) {
   return "";
 }
 
-async function aiDraft(config, x, industry, answers, retryRateLimit = false) {
+async function aiDraft(config, x, industry, answers, profile = coachProfile, retryRateLimit = false) {
   const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
   const location = x.address?.replace(/\s+/g," ").trim().slice(0,130);
   const description = await applicationWebsiteDescription(x);
   if (location) input.set("business_location",location);
   if (description) input.set("business_description",description);
-  const target = [coachProfile.role,coachProfile.goal].filter(Boolean).join(" · ").slice(0,160);
+  const target = [profile.role,profile.goal].filter(Boolean).join(" · ").slice(0,160);
   if (target) input.set("goal",target);
-  if (coachProfile.availability) input.set("availability",coachProfile.availability.slice(0,160));
-  if (coachProfile.tone) input.set("tone",coachProfile.tone.slice(0,160));
+  if (profile.availability) input.set("availability",profile.availability.slice(0,160));
+  const voice = applicationVoice(profile.tone);
+  const tone = voice === "friendly" ? "Locker, freundlich und natürlich. In der Sie-Form wie eine persönliche Nachricht schreiben."
+    : voice === "direct" ? "Kurz, direkt, natürliche Alltagssprache mit Sie. Wenige Sätze und keine Floskeln." : profile.tone;
+  if (tone) input.set("tone",tone.slice(0,160));
+  if (profile.study) input.append("profile_fact",`Ich studiere ${profile.study}.`);
   const terms = new Set(searchText([x.name,industry,description].join(" ")).split(/\W+/).filter(word=>word.length > 3));
   const facts = coachProfile.facts.map(fact=>({claim:fact.claim,score:searchText(fact.claim).split(/\W+/).filter(word=>terms.has(word)).length}));
   facts.sort((a,b)=>b.score-a.score);
-  for (const {claim} of facts.slice(0,4)) input.append("profile_fact",claim);
+  for (const {claim} of facts.slice(0,profile.study ? 3 : 4)) input.append("profile_fact",claim);
   const reply = await request(config.url, {method:"POST", body:input.toString(), timeout:16000, max:12000});
   if (retryRateLimit && reply.status === 429) throw Error("draft_rate_limit");
   if (!reply.ok) return null;
@@ -3112,17 +3190,18 @@ async function generateAssistantDraft(useAI) {
   if (!state || state.busy) return;
   const config = useAI && state.access === "ready" ? state.config : null;
   const {x, industry, answers} = state;
+  const profile = {...coachProfile};
   state.autoDraft = false;
   state.busy = true;
   renderAssistant();
   const contact = needsContactScan(x) ? scanContact(x).then(() => {
     if (S.items.includes(x)) { save(); render(new Set([x])); }
   }) : Promise.resolve();
-  const generated = config ? await aiDraft(config, x, industry, answers).catch(() => null) : null;
+  const generated = config ? await aiDraft(config, x, industry, answers, profile).catch(() => null) : null;
   await contact;
   if (assistant !== state) return;
-  const content = generated || templateDraft(x, answers);
-  const body = formatApplicationDraft(content.body,applicationGreeting(x),tpl.name);
+  const content = generated || templateDraft(x, answers, profile);
+  const body = formatApplicationDraft(content.body,applicationGreeting(x,profile.tone),tpl.name,profile);
   state.draft = {subject:content.subject, body, source:generated ? "KI-Entwurf" : config ? "KI gerade nicht verfügbar · Entwurf aus Vorlage" : "Entwurf aus Vorlage"};
   state.busy = false;
   renderAssistant();
@@ -3145,7 +3224,7 @@ function renderAssistant() {
     $("draftBody").value = draft.body;
   } else if (step === APPLICATION_QUESTIONS.length) {
     box.innerHTML = `<p class="assistant-step">Dein Entwurf</p>
-      ${access === "ready" ? '<p class="hint">Für den KI-Entwurf werden Firma, Branche und deine Antworten übermittelt.</p><button class="primary" type="button" data-ass="ai">KI-Entwurf erstellen</button>' : ""}
+      ${access === "ready" ? '<p class="hint">Für den KI-Entwurf werden Angaben zur Firma und zu deinem Bewerbungsprofil an OpenAI gesendet.</p><button class="primary" type="button" data-ass="ai">KI-Entwurf erstellen</button>' : ""}
       ${access === "checking" ? '<p class="hint" role="status">KI-Zugang wird geprüft …</p>' : ""}
       ${access === "unavailable" ? '<p class="hint">KI ist gerade nicht erreichbar.</p><button class="link" type="button" data-ass="recheck">Erneut prüfen</button>' : ""}
       ${access === "approval" ? `<p class="hint">Dieses Handy braucht eine einmalige KI-Freigabe.</p><code class="assistant-code">${esc(config.activation)}</code>
@@ -3354,12 +3433,13 @@ const coachQuestions = [
   {key:"role",label:"Arbeitsform",question:"Welche Art von Stelle suchst du?",choices:["Minijob","Werkstudentin","Teilzeit","Praktikum","Vollzeit"]},
   {key:"goal",label:"Suchziel",question:"Welche Tätigkeit oder Branche interessiert dich?",choices:[]},
   {key:"availability",label:"Verfügbarkeit",question:"Wann oder wie viel kannst du arbeiten?",choices:["Nachmittags","Am Wochenende","Flexibel"],optional:true},
-  {key:"tone",label:"Schreibstil",question:"Wie sollen deine Bewerbungen klingen?",choices:["Kurz und direkt","Freundlich","Formell"],optional:true}
+  {key:"tone",label:"Schreibstil",question:"Wie sollen deine Bewerbungen klingen?",choices:["Kurz und direkt","Locker und freundlich","Formell"],optional:true}
 ];
-const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",facts:[],ready:false},store.get("jr_coach_profile",null));
+const coachProfileKey = "jr_coach_profile";
+const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",study:"",highlight:"",facts:[],ready:false},store.get(coachProfileKey,null));
 let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 0;
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
-const saveCoachProfile = () => store.set("jr_coach_profile",coachProfile);
+const saveCoachProfile = () => store.set(coachProfileKey,coachProfile);
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
 const androidCameraInstaller = "https://raw.githubusercontent.com/behrens-fangpunkt/jobradar-update/b31f8927cdd94db0218a8b7648a04002b5bfe7e5/downloads/JobRadr-Android-v33.apk";
 const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:""};
@@ -3370,6 +3450,75 @@ let pendingPortraitCapture = null;
 function canOpenPortraitSource(action) {
   if (iosPortraitHost) return hasNative && typeof Native[action] === "function";
   return !hasNative || typeof Native[action] === "function" || Native.nativeVersion() >= 3;
+}
+
+function coachPreferencesFromForm(form) {
+  const values = new FormData(form);
+  const read = (key,limit = 160) => String(values.get(key) || "").trim().replace(/\s+/g," ").slice(0,limit);
+  return {
+    role:read("role"),goal:read("goal"),availability:read("availability"),tone:read("tone"),
+    study:read("study",80).replace(/^ich studiere\s+/i,"").replace(/[.!?]+$/,"").trim(),
+    highlight:read("highlight")
+  };
+}
+
+function renderCoachDraftPreview(form) {
+  const profile = coachPreferencesFromForm(form);
+  const example = {name:"Beispielbetrieb"};
+  const draft = templateDraft(example,{},profile);
+  $("coachPreviewSubject").textContent = draft.subject;
+  $("coachPreviewBody").textContent = formatApplicationDraft(draft.body,applicationGreeting(example,profile.tone),tpl.name,profile);
+}
+
+function renderCoachPreferences() {
+  const page = $("settingsCoachPreferences");
+  const tone = coachProfile.tone === "Freundlich" ? "Locker und freundlich" : coachProfile.tone || "Kurz und direkt";
+  const tones = uniq([...coachQuestions[3].choices,tone]);
+  page.innerHTML = `<form id="coachPreferences" class="coach-settings-form">
+    <section class="coach-block" aria-labelledby="coachSearchSettingsTitle">
+      <h3 class="coach-title" id="coachSearchSettingsTitle">Suchprofil</h3>
+      <div class="coach-settings-field"><label class="lbl" for="coachRole">Arbeitsform</label>
+        <input id="coachRole" name="role" list="coachRoleOptions" maxlength="160" value="${esc(coachProfile.role)}" placeholder="z. B. Werkstudentin">
+        <datalist id="coachRoleOptions">${coachQuestions[0].choices.map(role=>`<option value="${esc(role)}"></option>`).join("")}</datalist></div>
+      <div class="coach-settings-field"><label class="lbl" for="coachGoal">Suchziel</label>
+        <input id="coachGoal" name="goal" maxlength="160" value="${esc(coachProfile.goal)}" placeholder="z. B. Apotheke"></div>
+      <div class="coach-settings-field"><label class="lbl" for="coachAvailability">Verfügbarkeit</label>
+        <input id="coachAvailability" name="availability" maxlength="160" value="${esc(coachProfile.availability)}" placeholder="z. B. nachmittags nach Absprache"></div>
+    </section>
+    <section class="coach-block" aria-labelledby="coachWritingSettingsTitle">
+      <h3 class="coach-title" id="coachWritingSettingsTitle">Bewerbungstext</h3>
+      <div class="coach-settings-field"><label class="lbl" for="coachStudy">Studienfach</label>
+        <input id="coachStudy" name="study" maxlength="80" value="${esc(coachProfile.study)}" placeholder="z. B. Pharmazie"></div>
+      <div class="coach-settings-field"><label class="lbl" for="coachHighlight">Immer erwähnen</label>
+        <input id="coachHighlight" name="highlight" maxlength="160" value="${esc(coachProfile.highlight)}" placeholder="z. B. Ich habe Erfahrung im Verkauf."></div>
+      <div class="coach-settings-field"><label class="lbl" for="coachTone">Schreibstil</label>
+        <select id="coachTone" name="tone">${tones.map(option=>`<option${option===tone ? " selected" : ""}>${esc(option)}</option>`).join("")}</select></div>
+    </section>
+    <details class="coach-block coach-preview"><summary>Vorschau der Standardbewerbung</summary>
+      <p><strong id="coachPreviewSubject"></strong></p><p id="coachPreviewBody" class="coach-preview-body"></p></details>
+    <button class="primary" type="submit">Speichern</button>
+    ${coachProfile.ready ? "" : '<button class="link" type="button" id="coachGuidedSetup">Schritt für Schritt einrichten</button>'}
+  </form>`;
+  const form = $("coachPreferences");
+  form.oninput = () => renderCoachDraftPreview(form);
+  form.onsubmit = event => {
+    event.preventDefault();
+    const updates = coachPreferencesFromForm(form);
+    const next = {...coachProfile,...updates,ready:true};
+    try { localStorage.setItem(coachProfileKey,JSON.stringify(next)); }
+    catch (_) { toast("Das Profil konnte nicht gespeichert werden."); return; }
+    Object.assign(coachProfile,next);
+    if (coachResumeAssistant) closeSheet();
+    else showSettingsPage("settingsCoach");
+    toast("KI-Einstellungen gespeichert");
+  };
+  $("coachGuidedSetup")?.addEventListener("click",() => {
+    showSettingsPage("settingsCoach");
+    coachQuestion = 0;
+    coachLastAnswer = "";
+    renderCoach();
+  });
+  renderCoachDraftPreview(form);
 }
 
 function renderCoach() {
@@ -3385,7 +3534,7 @@ function renderCoach() {
       ${optional ? '<button class="link" data-coach="skip" type="button">Überspringen</button>' : ""}`;
     return;
   }
-  const entries = coachQuestions.filter(({key})=>coachProfile[key]);
+  const entries = [...coachQuestions, {key:"study",label:"Studienfach"}].filter(({key})=>coachProfile[key]);
   const suggestions = coachSuggestions?.length ? `<form id="coachFactsForm" class="coach-fact-review">
     <h3 class="coach-title">Fakten prüfen</h3>
     <p class="hint">Bearbeite oder entferne die Vorschläge vor dem Übernehmen.</p>
@@ -3401,7 +3550,7 @@ function renderCoach() {
   box.innerHTML = `<section class="coach-block">
     <h3 class="coach-title">Suchprofil</h3>
     ${entries.length ? `<dl class="coach-profile">${entries.map(({key,label})=>`<div><dt>${label}</dt><dd>${esc(coachProfile[key])}</dd></div>`).join("")}</dl>` : ""}
-    <div class="coach-actions"><button class="link" type="button" data-coach="guide">${coachProfile.ready ? "Profil ändern" : "Profil erstellen"}</button>
+    <div class="coach-actions"><button class="link" type="button" data-coach="preferences">KI-Einstellungen</button>
     ${coachProfile.goal ? '<button class="link" type="button" data-coach="search">Suche starten</button>' : ""}</div>
   </section>
   <section class="coach-block">
@@ -3664,13 +3813,7 @@ $("settingsCoach").onclick = event => {
   if (!button) return;
   if (button.dataset.coachAnswer) return saveCoachAnswer(button.dataset.coachAnswer);
   switch (button.dataset.coach) {
-    case "guide": {
-      const unanswered = coachQuestions.findIndex(({key,optional})=>!optional && !coachProfile[key]);
-      coachQuestion = unanswered < 0 ? 0 : unanswered;
-      coachLastAnswer = "";
-      renderCoach();
-      break;
-    }
+    case "preferences": showSettingsPage("settingsCoachPreferences"); break;
     case "skip": saveCoachAnswer(""); break;
     case "search": searchFromCoach(); break;
     case "analyze": requestCoachCV(); break;
@@ -4496,6 +4639,7 @@ const settingsPages = {
   settingsTemplate:"Bewerbungsvorlage",
   settingsDocuments:"Bewerbungsunterlagen",
   settingsCoach:"AI-Coach",
+  settingsCoachPreferences:"KI-Einstellungen",
   settingsApp:"App-Informationen"
 };
 let settingsEntry = "settingsHome", settingsTrigger = null;
@@ -4504,7 +4648,7 @@ function showSettingsPage(page) {
   for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
   $("settingsTitle").textContent = settingsPages[page];
   $("settingsBack").classList.toggle("hidden",page === settingsEntry);
-  $("settingsBack").setAttribute("aria-label",page === "settingsDocuments" || settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
+  $("settingsBack").setAttribute("aria-label",page === "settingsDocuments" || page === "settingsCoachPreferences" || settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
   if (page === "settingsTemplate") {
     $("tName").value = tpl.name;
     $("tSubj").value = tpl.subj;
@@ -4519,6 +4663,7 @@ function showSettingsPage(page) {
     coachQuestion = -1;
     showCoach();
   }
+  if (page === "settingsCoachPreferences") renderCoachPreferences();
   if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
   $("settingsTitle").focus({preventScroll:true});
@@ -4549,11 +4694,10 @@ function closeSheet(restoreFocus = true){
   if (restoreFocus) (settingsTrigger?.isConnected ? settingsTrigger : $("gear")).focus({preventScroll:true});
 }
 function backInSettings() {
-  if (!$("settingsDocuments").classList.contains("hidden")) showSettingsPage("settingsCoach");
-  else if (coachResumeAssistant && !$("settingsCoach").classList.contains("hidden")) closeSheet();
-  else if (coachResumeAssistant) showSettingsPage("settingsCoach");
-  else if ($(settingsEntry).classList.contains("hidden")) showSettingsPage(settingsEntry);
-  else closeSheet();
+  if (!$(settingsEntry).classList.contains("hidden")) return closeSheet();
+  if (!$("settingsDocuments").classList.contains("hidden") ||
+      !$("settingsCoachPreferences").classList.contains("hidden")) return showSettingsPage("settingsCoach");
+  showSettingsPage(settingsEntry);
 }
 function setSearchEditing(editing) {
   render.editing = editing;
@@ -4699,8 +4843,7 @@ $("assistantContent").onclick = async e => {
     }
     coachResumeAssistant = assistant;
     closeAssistant();
-    openSheet();
-    showSettingsPage("settingsCoach");
+    openSheet("settingsCoachPreferences");
   } else if (button.dataset.ass === "ai" || button.dataset.ass === "template") {
     await generateAssistantDraft(button.dataset.ass === "ai");
   } else if (button.dataset.ass === "recheck") {
