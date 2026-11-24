@@ -251,8 +251,11 @@ export default {
       const form = await readForm(request,limit);
       if (!form) return reply(413, {error:"request_too_large"});
       const fingerprint = await phoneFingerprint(form.get("device"));
-      const approved = env.APPROVED_DEVICE_CODES?.toLowerCase().replace(/-/g, "").split(/[\s,]+/) || [];
-      const authorized = (fingerprint && approved.includes(fingerprint)) || await validAccessCode(form.get("code"), env.ASSISTANT_CODE);
+      const approved = env.APPROVED_DEVICE_CODES?.trim().toLowerCase().replace(/-/g, "").split(/[\s,]+/) || [];
+      const phoneApprovalsDisabled = approved.length === 1 && approved[0] === "none";
+      const approvedPhone = fingerprint && !phoneApprovalsDisabled &&
+        (approved.includes(fingerprint) || env[`APPROVED_DEVICE_${fingerprint.toUpperCase()}`] === "1");
+      const authorized = approvedPhone || await validAccessCode(form.get("code"), env.ASSISTANT_CODE);
       if (!authorized) {
         const activation = (path === "/access" || analyzing || headshot || chatting) && fingerprint ? fingerprint.match(/.{8}/g).join("-").toUpperCase() : undefined;
         return reply(401, {error:"access_denied", activation});
