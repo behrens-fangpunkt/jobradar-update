@@ -25,12 +25,13 @@ Lasse Name, Adresse, Kontaktdaten, Geburtsdatum, Fotos, private Merkmale, Noten 
 
 const COACH_CHAT_INSTRUCTIONS = `Du bist der Bewerbungscoach von JobRadr. Antworte freundlich und direkt in der Sprache der aktuellen Nachricht. Entscheide nach dieser Nachricht, was die Person jetzt möchte. Ältere Nachrichten dienen nur als Kontext.
 intent=profile: Die Person nennt eine Einstellung oder Tatsache für künftige Bewerbungen, korrigiert ihr Profil oder bittet darum, es zu überarbeiten. „Alle Mails immer kurz freundlich und direkt formulieren“ ist eine dauerhafte Stilpräferenz. Setze dann tone auf „Kurz, freundlich und direkt“. Antworte mit höchstens zwei kurzen Sätzen. Schreibe weder eine Beispielmail noch eine Anrede und biete keine Neufassung an. Bei einem klaren Wunsch brauchst du keine Rückfrage.
+salutation steuert nur die Anrede. Eine Bitte um „eine förmliche Anrede“, „Sehr geehrte Frau …“ oder „Sehr geehrter Herr …“ für künftige E-Mails setzt salutation auf „Förmlich“. Lass tone dabei auf null, solange die Person keine Änderung des übrigen Schreibstils wünscht. Für die Rückkehr zur automatischen Anrede setze salutation auf einen leeren Text. Wenn das Antwortschema das Feld salutation nicht anbietet, darfst du tone dafür nicht ändern.
 intent=draft: Nur wenn die aktuelle Nachricht ausdrücklich um einen bestimmten Text, einen Entwurf, ein Beispiel oder die Überarbeitung eines bestehenden Textes bittet. Ein früherer Entwurf oder eine frühere Vorlage ist allein kein Auftrag. Schreibe nur den erbetenen Text, in natürlichem Deutsch mit Sie. Wenn der Empfänger unbekannt ist, beginne mit dem Inhalt. Verwende nie „Sehr geehrte Damen und Herren“ oder Platzhalter wie {Anrede}. Nenne eine Tatsache jeweils einmal.
 intent=reply: Beantworte andere Fragen knapp und ändere kein Profil. Stelle höchstens eine gezielte Rückfrage, wenn eine Angabe wirklich fehlt.
 Verwende als Tatsachen nur das gespeicherte Profil und eigene Angaben der Person. Frühere Antworten des Coaches sind kein Nachweis. Übernimm Behauptungen aus einer Beispielvorlage nur, wenn die Person sagt, dass sie auf sie zutreffen. Korrigiere Füllwörter und Schreibfehler, ohne Fakten zu ergänzen. „Abhängig von meinem Stundenplan“ sagt keine festen Tage oder Stunden zu.
 Schlage nur eindeutig genannte oder ausdrücklich gewünschte Profiländerungen vor. role ist die Arbeitsform, goal die Branche oder Tätigkeit, study das Studienfach ohne Satz oder Semester, availability ein Ich-Satz und highlight eine zusätzliche Tatsache als kurzer Satz. Wiederhole im highlight kein vorhandenes Studienfach. Bei unveränderten oder unklaren Feldern liefere null, beim ausdrücklich gewünschten Entfernen einen leeren Text. Behaupte nie, du hättest etwas gespeichert, nach Stellen gesucht oder eine E-Mail gesendet. Verwende kein Markdown.`;
 
-const coachChatFields = {role:160,goal:160,availability:160,tone:160,study:80,highlight:160};
+const coachChatFields = {role:160,goal:160,availability:160,tone:160,salutation:20,study:80,highlight:160};
 const coachChatTones = ["Kurz, freundlich und direkt","Locker und freundlich","Kurz und direkt","Formell"];
 
 function reply(status, data) {
@@ -145,12 +146,21 @@ function readCoachChat(form) {
     if (typeof value !== "string" || value.length > limit) return null;
     if (value.trim()) saved[key] = value.trim();
   }
-  return {messages:messages.map(({role,text})=>({role,text:text.trim()})),profile:saved};
+  return {messages:messages.map(({role,text})=>({role,text:text.trim()})),profile:saved,
+    supportsSalutation:Object.hasOwn(profile,"salutation")};
 }
 
-async function coachChat(context, apiKey) {
-  const properties = Object.fromEntries(Object.keys(coachChatFields).map(key=>[key,{type:["string","null"]}]));
+async function coachChat({supportsSalutation,...context}, apiKey) {
+  const last = context.messages.at(-1).text;
+  if (/^(?:bitte\s+)?(?:beginne|starte)\s+(?:bitte\s+)?(?:jede\s+(?:e-?mail|bewerbung)|alle\s+e-?mails)\s+mit\s+(?:einer?\s+)?(?:förmlichen?|formellen?)\s+anrede(?:\s+(?:wie|zum beispiel)\s+[^\n!?]+)?[.!]?$/iu.test(last)) {
+    if (!supportsSalutation) return {message:"Nach dem nächsten App-Update kannst du die Anrede getrennt vom Schreibstil einstellen.",profile:{}};
+    if (context.profile.salutation === "Förmlich") return {message:"Für deine Entwürfe ist die förmliche Anrede bereits eingestellt.",profile:{}};
+    return {message:"Soll ich die förmliche Anrede für deine nächsten Entwürfe übernehmen?",profile:{salutation:"Förmlich"}};
+  }
+  const fields = Object.entries(coachChatFields).filter(([key])=>key !== "salutation" || supportsSalutation);
+  const properties = Object.fromEntries(fields.map(([key])=>[key,{type:["string","null"]}]));
   properties.tone.enum = [...coachChatTones,"",null];
+  if (supportsSalutation) properties.salutation.enum = ["Förmlich","",null];
   const output = await responseJSON(apiKey,{instructions:COACH_CHAT_INSTRUCTIONS,input:JSON.stringify(context),
     name:"coach_chat",maxTokens:750,timeout:24000,schema:{
       type:"object",additionalProperties:false,required:["intent","message","profile"],
@@ -160,15 +170,19 @@ async function coachChat(context, apiKey) {
     }});
   if (typeof output?.message !== "string" || !output.message.trim() || output.message.length > 2200) return null;
   const profile = {};
-  for (const [key,limit] of Object.entries(coachChatFields)) {
+  for (const [key,limit] of fields) {
     const value = output.profile?.[key];
     if (output.intent === "reply" || typeof value !== "string" || value.length > limit) continue;
     const clean = value.trim().replace(/\s+/g," ");
     if (key === "tone" && clean && !coachChatTones.includes(clean)) continue;
+    if (key === "salutation" && clean && clean !== "Förmlich") continue;
     if (clean !== (context.profile[key] || "")) profile[key] = clean;
   }
-  const message = output.intent === "profile" && Object.keys(profile).length
-    ? (profile.tone && Object.keys(profile).length === 1 ? "Soll ich diesen Schreibstil für deine nächsten Entwürfe übernehmen?" : "Möchtest du diese Änderungen für deine nächsten Entwürfe übernehmen?")
+  const keys = Object.keys(profile);
+  const single = keys.length === 1 ? keys[0] : "";
+  const message = output.intent === "profile" && keys.length
+    ? ({tone:"Soll ich diesen Schreibstil für deine nächsten Entwürfe übernehmen?",
+      salutation:"Soll ich diese Anrede für deine nächsten Entwürfe übernehmen?"}[single] || "Möchtest du diese Änderungen für deine nächsten Entwürfe übernehmen?")
     : output.message.replace(/^[ \t]*(?:Sehr geehrte Damen und Herren|\{Anrede\})\s*[!,.:]?[ \t]*(?:\r?\n|$)/gim, "").trim();
   return message ? {message,profile} : null;
 }
