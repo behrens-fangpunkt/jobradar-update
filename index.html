@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="35">
+<meta name="jr-version" content="36">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -863,6 +863,15 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .coach-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
 .coach-actions .chip{white-space:normal}
 .coach-panel .primary{margin-top:6px}
+.coach-chat{display:grid;gap:10px}
+.coach-chat-log{display:grid;gap:8px;min-width:0}
+.coach-chat-log .coach-bubble{white-space:pre-wrap}
+.coach-chat-log .coach-answer{margin-left:24px}
+.coach-chat-form{display:grid;gap:6px;position:sticky;bottom:0;background:var(--card);padding:6px 0 10px}
+.coach-chat-form textarea{min-height:66px;resize:none}
+.coach-chat-form .primary{margin:0}
+.coach-chat-form .primary:disabled{opacity:.55}
+.coach-chat-proposal dd{overflow-wrap:anywhere}
 .coach-fact{margin:9px 0;padding-top:9px;border-top:1px solid var(--line)}
 .coach-fact label{display:flex;align-items:center;gap:8px}
 .coach-fact input[type=checkbox]{width:18px;height:18px;flex:none;accent-color:var(--acc)}
@@ -1193,6 +1202,7 @@ html.mail-open,html.mail-open body{overflow:hidden;overscroll-behavior:none}
   <section id="settingsDocuments" class="hidden"></section>
   <section id="settingsCoach" class="coach-panel hidden" aria-label="AI-Coach"></section>
   <section id="settingsCoachPreferences" class="hidden"></section>
+  <section id="settingsCoachChat" class="coach-chat hidden" aria-label="Gespräch mit dem AI-Coach"></section>
   <input class="hidden" id="portraitCapture" type="file" accept="image/*" capture="user">
   <input class="hidden" id="portraitFile" type="file" accept="image/*">
   <section id="settingsApp" class="hidden">
@@ -3096,6 +3106,8 @@ function templateDraft(x, answers, profile = coachProfile) {
 function applicationAvailability(value,time) {
   if (!value) return {flexibel:"Zeitlich bin ich flexibel.", morgens:"Ich kann vormittags arbeiten.", abends:"Ich kann abends arbeiten.", wochenende:"Ich kann am Wochenende arbeiten."}[time];
   if (/^(?:ich\b|meine\b)/i.test(value)) return applicationSentence(value);
+  if (/^(?:abhängig|je nach)\b.*\bstundenplan\b/i.test(value)) return "Meine Verfügbarkeit hängt von meinem Stundenplan ab.";
+  if (!/^(?:flexibel|morgens|vormittags|mittags|nachmittags|abends|am wochenende|werktags|nach absprache|ab\s+\d|\d+\s+stunden)\b/i.test(value)) return "";
   const phrase = value.replace(/^[A-ZÄÖÜ]/, char=>char.toLowerCase()).replace(/[.!?]+$/, "");
   return `Ich kann ${phrase} arbeiten.`;
 }
@@ -3137,9 +3149,11 @@ function formatApplicationDraft(body,greeting,name,profile = coachProfile) {
     if (paragraphs.length) paragraphs[0] = applicationSentence(paragraphs[0]);
     paragraphs.unshift(`ich studiere ${profile.study}.`);
   }
-  const highlight = searchText(profile.highlight);
+  const semester = String(profile.highlight || "").match(/^(?:[\p{L}-]+\s+){0,3}(?:studentin|student)\s+im\s+(\d{1,2})\.\s*semester[.]?$/iu);
+  const highlightText = semester && study ? `Ich bin im ${semester[1]}. Semester.` : profile.highlight;
+  const highlight = searchText(highlightText);
   if (highlight && !searchText(text).includes(highlight)) {
-    paragraphs.splice(1,0,applicationSentence(profile.highlight));
+    paragraphs.splice(1,0,applicationSentence(highlightText));
   }
   const signoff = applicationVoice(profile.tone) === "formal" ? "Mit freundlichen Grüßen" : "Viele Grüße";
   return [greeting + ",",...paragraphs,[signoff,name].filter(Boolean).join("\n")].join("\n\n");
@@ -3429,17 +3443,23 @@ $("applicationFileSlots").onclick = event => {
 };
 
 /* ---------- AI-Coach ---------- */
-const coachQuestions = [
-  {key:"role",label:"Arbeitsform",question:"Welche Art von Stelle suchst du?",choices:["Minijob","Werkstudentin","Teilzeit","Praktikum","Vollzeit"]},
-  {key:"goal",label:"Suchziel",question:"Welche Tätigkeit oder Branche interessiert dich?",choices:[]},
-  {key:"availability",label:"Verfügbarkeit",question:"Wann oder wie viel kannst du arbeiten?",choices:["Nachmittags","Am Wochenende","Flexibel"],optional:true},
-  {key:"tone",label:"Schreibstil",question:"Wie sollen deine Bewerbungen klingen?",choices:["Kurz und direkt","Locker und freundlich","Formell"],optional:true}
-];
+const coachRoles = ["Minijob","Werkstudentin","Teilzeit","Praktikum","Vollzeit"];
+const coachTones = ["Kurz und direkt","Locker und freundlich","Formell"];
+const coachFields = {
+  role:{label:"Arbeitsform",limit:160}, goal:{label:"Suchziel",limit:160},
+  availability:{label:"Verfügbarkeit",limit:160}, tone:{label:"Schreibstil",limit:160},
+  study:{label:"Studienfach",limit:80}, highlight:{label:"Immer erwähnen",limit:160}
+};
 const coachProfileKey = "jr_coach_profile";
 const coachProfile = Object.assign({role:"",goal:"",availability:"",tone:"",study:"",highlight:"",facts:[],ready:false},store.get(coachProfileKey,null));
-let coachQuestion = -1, coachLastAnswer = "", coachCV = null, coachCVRevision = 0;
+let coachCV = null, coachCVRevision = 0;
 let coachBusy = false, coachSuggestions = null, coachMessage = "", coachActivation = "", coachResumeAssistant = null;
 const saveCoachProfile = () => store.set(coachProfileKey,coachProfile);
+const coachChatKey = "jr_coach_chat";
+const coachChat = {
+  messages:[], proposal:null, ...store.get(coachChatKey,null),
+  pending:"", input:"", error:"", activation:""
+};
 const portraitAngles = {left:"Links",front:"Frontal",right:"Rechts"};
 const androidCameraInstaller = "https://raw.githubusercontent.com/behrens-fangpunkt/jobradar-update/b31f8927cdd94db0218a8b7648a04002b5bfe7e5/downloads/JobRadr-Android-v33.apk";
 const coachPhoto = {angle:"left",references:{},preview:null,previewURL:"",busy:false,message:"",activation:""};
@@ -3462,6 +3482,120 @@ function coachPreferencesFromForm(form) {
   };
 }
 
+function updateCoachPreferences(updates) {
+  const next = {...coachProfile,...updates,ready:true};
+  try { localStorage.setItem(coachProfileKey,JSON.stringify(next)); }
+  catch (_) { toast("Das Profil konnte nicht gespeichert werden."); return false; }
+  Object.assign(coachProfile,next);
+  return true;
+}
+
+function coachChatProfile() {
+  return Object.fromEntries(Object.entries(coachFields).map(([key,{limit}])=>[key,String(coachProfile[key] || "").slice(0,limit)]));
+}
+
+function persistCoachChat() {
+  const {messages,proposal} = coachChat;
+  store.set(coachChatKey,{messages,proposal});
+}
+
+function renderCoachChat(scroll = false) {
+  const box = $("settingsCoachChat");
+  const {messages,pending,proposal,error,activation,input} = coachChat;
+  box.innerHTML = `${messages.length ? "" : `<p class="coach-bubble">Was möchtest du in deinen Bewerbungen sagen oder anders formulieren?</p>
+    ${Object.values(coachChatProfile()).some(Boolean) ? `<div class="coach-actions"><button class="chip" type="button" data-coach-chat="polish" ${pending ? "disabled" : ""}>Profil überarbeiten</button></div>` : ""}`}
+    <div class="coach-chat-log" role="log" aria-label="Gespräch">${messages.map(({role,text})=>
+      `<div class="coach-bubble${role === "user" ? " coach-answer" : ""}"><strong>${role === "user" ? "Du" : "AI-Coach"}</strong><br>${esc(text)}</div>`).join("")}
+      ${pending ? `<div class="coach-bubble coach-answer"><strong>Du</strong><br>${esc(pending)}</div>
+        <p class="hint" role="status">Coach antwortet …</p>` : ""}</div>
+    ${proposal ? `<section class="coach-block coach-chat-proposal">
+      <h3 class="coach-title">Vorschlag für dein Profil</h3>
+      <dl class="coach-profile">${Object.entries(proposal.updates).map(([key,value])=>
+        `<div><dt>${coachFields[key].label}</dt><dd>${value ? esc(value) : "Entfernen"}</dd></div>`).join("")}</dl>
+      <div class="coach-actions"><button class="link" type="button" data-coach-chat="apply" ${pending ? "disabled" : ""}>Übernehmen</button>
+      <button class="link" type="button" data-coach-chat="discard" ${pending ? "disabled" : ""}>Verwerfen</button></div>
+    </section>` : ""}
+    ${error ? `<p class="coach-bubble" role="alert">${esc(error)}</p>` : ""}
+    ${activation ? `<div class="coach-actions"><code class="assistant-code">${esc(activation)}</code>
+      <button class="link" type="button" data-coach-chat="share">Freischaltcode teilen</button></div>` : ""}
+    <form id="coachChatForm" class="coach-chat-form">
+      <label class="lbl" for="coachChatInput">Nachricht an den Coach</label>
+      <textarea id="coachChatInput" name="message" rows="2" maxlength="1200" placeholder="z. B. Ich studiere Pharmazie im 5. Semester." required ${pending ? "disabled" : ""}>${esc(input)}</textarea>
+      <p class="hint">Beim Absenden werden das Gespräch und dein Bewerbungsprofil an OpenAI gesendet.</p>
+      <button class="primary" type="submit" ${pending ? "disabled" : ""}>Nachricht senden</button>
+      ${messages.length ? `<button class="link" type="button" data-coach-chat="reset" ${pending ? "disabled" : ""}>Neuer Chat</button>` : ""}
+    </form>`;
+  if (scroll && $("sheet").classList.contains("open")) $("sheet").scrollTop = $("sheet").scrollHeight;
+}
+
+async function sendCoachChat(message) {
+  const text = message.trim().slice(0,1200);
+  if (coachChat.pending || !text) return;
+  const base = coachChatProfile();
+  const messages = [...coachChat.messages.slice(-10),{role:"user",text}];
+  coachChat.pending = text;
+  coachChat.input = "";
+  coachChat.error = "";
+  coachChat.activation = "";
+  renderCoachChat(true);
+  try {
+    const phone = await assistantPhone();
+    const params = new URLSearchParams({...phone.credentials,messages:JSON.stringify(messages),profile:JSON.stringify(base)});
+    const response = await request(ASSISTANT_SERVER + "/coach/chat",{
+      method:"POST",body:params.toString(),timeout:28000,max:16000
+    });
+    const result = JSON.parse(response.text || "{}");
+    if (response.status === 401) {
+      if (/^[0-9A-F]{8}(?:-[0-9A-F]{8}){3}$/.test(result.activation)) coachChat.activation = result.activation;
+      throw Error("Dieses Handy braucht eine einmalige KI-Freigabe.");
+    }
+    if (response.status === 429) throw Error("Der Coach ist gerade ausgelastet. Versuch es in einer Minute erneut.");
+    if (!response.ok || typeof result.message !== "string" || !result.message.trim() || result.message.length > 2200) throw Error();
+    const updates = {};
+    for (const [key,{limit}] of Object.entries(coachFields)) {
+      const value = result.profile?.[key];
+      if (typeof value === "string" && value.length <= limit && value !== base[key] &&
+          (key !== "tone" || !value || coachTones.includes(value))) updates[key] = value;
+    }
+    if (Object.keys(updates).length) coachChat.proposal = {base,updates};
+    coachChat.messages = [...messages,{role:"assistant",text:result.message}];
+    persistCoachChat();
+  } catch (error) {
+    coachChat.input = text;
+    coachChat.error = error instanceof SyntaxError ? "Der Coach konnte nicht antworten. Versuch es erneut."
+      : error.message || "Der Coach konnte nicht antworten. Versuch es erneut.";
+  } finally {
+    coachChat.pending = "";
+    if (!$("settingsCoachChat").classList.contains("hidden")) renderCoachChat(true);
+  }
+}
+
+$("settingsCoachChat").oninput = event => {
+  if (event.target.id === "coachChatInput") coachChat.input = event.target.value;
+};
+$("settingsCoachChat").onsubmit = event => {
+  event.preventDefault();
+  if (event.target.id === "coachChatForm") sendCoachChat($("coachChatInput").value);
+};
+$("settingsCoachChat").onclick = event => {
+  const action = event.target.closest("button")?.dataset.coachChat;
+  if (!action || coachChat.pending) return;
+  if (action === "share") return shareActivationCode(coachChat.activation);
+  if (action === "polish") return sendCoachChat("Schau dir bitte die Angaben in meinem Profil an. Formuliere unvollständige Notizen so, wie ich sie in einer Bewerbung schreiben würde. Frage nach, wenn etwas unklar ist.");
+  if (action === "apply") {
+    const {base,updates} = coachChat.proposal;
+    const current = coachChatProfile();
+    if (Object.keys(updates).some(key=>current[key] !== base[key])) {
+      coachChat.error = "Dein Profil wurde inzwischen geändert. Bitte den Coach um einen neuen Vorschlag.";
+    } else if (!updateCoachPreferences(updates)) return;
+    else { coachChat.error = ""; toast("Profil übernommen"); }
+    coachChat.proposal = null;
+  } else if (action === "discard") coachChat.proposal = null;
+  else if (action === "reset") Object.assign(coachChat,{messages:[],proposal:null,input:"",error:"",activation:""});
+  persistCoachChat();
+  renderCoachChat(action !== "reset");
+};
+
 function renderCoachDraftPreview(form) {
   const profile = coachPreferencesFromForm(form);
   const example = {name:"Beispielbetrieb"};
@@ -3473,13 +3607,13 @@ function renderCoachDraftPreview(form) {
 function renderCoachPreferences() {
   const page = $("settingsCoachPreferences");
   const tone = coachProfile.tone === "Freundlich" ? "Locker und freundlich" : coachProfile.tone || "Kurz und direkt";
-  const tones = uniq([...coachQuestions[3].choices,tone]);
+  const tones = uniq([...coachTones,tone]);
   page.innerHTML = `<form id="coachPreferences" class="coach-settings-form">
     <section class="coach-block" aria-labelledby="coachSearchSettingsTitle">
       <h3 class="coach-title" id="coachSearchSettingsTitle">Suchprofil</h3>
       <div class="coach-settings-field"><label class="lbl" for="coachRole">Arbeitsform</label>
         <input id="coachRole" name="role" list="coachRoleOptions" maxlength="160" value="${esc(coachProfile.role)}" placeholder="z. B. Werkstudentin">
-        <datalist id="coachRoleOptions">${coachQuestions[0].choices.map(role=>`<option value="${esc(role)}"></option>`).join("")}</datalist></div>
+        <datalist id="coachRoleOptions">${coachRoles.map(role=>`<option value="${esc(role)}"></option>`).join("")}</datalist></div>
       <div class="coach-settings-field"><label class="lbl" for="coachGoal">Suchziel</label>
         <input id="coachGoal" name="goal" maxlength="160" value="${esc(coachProfile.goal)}" placeholder="z. B. Apotheke"></div>
       <div class="coach-settings-field"><label class="lbl" for="coachAvailability">Verfügbarkeit</label>
@@ -3497,44 +3631,22 @@ function renderCoachPreferences() {
     <details class="coach-block coach-preview"><summary>Vorschau der Standardbewerbung</summary>
       <p><strong id="coachPreviewSubject"></strong></p><p id="coachPreviewBody" class="coach-preview-body"></p></details>
     <button class="primary" type="submit">Speichern</button>
-    ${coachProfile.ready ? "" : '<button class="link" type="button" id="coachGuidedSetup">Schritt für Schritt einrichten</button>'}
   </form>`;
   const form = $("coachPreferences");
   form.oninput = () => renderCoachDraftPreview(form);
   form.onsubmit = event => {
     event.preventDefault();
-    const updates = coachPreferencesFromForm(form);
-    const next = {...coachProfile,...updates,ready:true};
-    try { localStorage.setItem(coachProfileKey,JSON.stringify(next)); }
-    catch (_) { toast("Das Profil konnte nicht gespeichert werden."); return; }
-    Object.assign(coachProfile,next);
+    if (!updateCoachPreferences(coachPreferencesFromForm(form))) return;
     if (coachResumeAssistant) closeSheet();
     else showSettingsPage("settingsCoach");
     toast("KI-Einstellungen gespeichert");
   };
-  $("coachGuidedSetup")?.addEventListener("click",() => {
-    showSettingsPage("settingsCoach");
-    coachQuestion = 0;
-    coachLastAnswer = "";
-    renderCoach();
-  });
   renderCoachDraftPreview(form);
 }
 
 function renderCoach() {
   const box = $("settingsCoach");
-  if (coachQuestion >= 0) {
-    const {key,question,choices,optional} = coachQuestions[coachQuestion];
-    box.innerHTML = `${coachLastAnswer ? `<p class="coach-bubble coach-answer">${esc(coachLastAnswer)}</p>` : ""}
-      <p class="coach-bubble" role="status">${question}</p>
-      <div class="coach-actions">${choices.map(choice=>`<button class="chip" type="button" data-coach-answer="${esc(choice)}">${esc(choice)}</button>`).join("")}</div>
-      <form id="coachAnswerForm"><label class="lbl" for="coachAnswer">Deine Antwort</label>
-        <input id="coachAnswer" value="${esc(coachProfile[key])}" maxlength="160" required>
-        <button type="submit" class="primary">Weiter</button></form>
-      ${optional ? '<button class="link" data-coach="skip" type="button">Überspringen</button>' : ""}`;
-    return;
-  }
-  const entries = [...coachQuestions, {key:"study",label:"Studienfach"}].filter(({key})=>coachProfile[key]);
+  const entries = Object.entries(coachFields).filter(([key])=>key !== "highlight" && coachProfile[key]);
   const suggestions = coachSuggestions?.length ? `<form id="coachFactsForm" class="coach-fact-review">
     <h3 class="coach-title">Fakten prüfen</h3>
     <p class="hint">Bearbeite oder entferne die Vorschläge vor dem Übernehmen.</p>
@@ -3549,7 +3661,8 @@ function renderCoach() {
   </form>` : "";
   box.innerHTML = `<section class="coach-block">
     <h3 class="coach-title">Suchprofil</h3>
-    ${entries.length ? `<dl class="coach-profile">${entries.map(({key,label})=>`<div><dt>${label}</dt><dd>${esc(coachProfile[key])}</dd></div>`).join("")}</dl>` : ""}
+    ${entries.length ? `<dl class="coach-profile">${entries.map(([key,{label}])=>`<div><dt>${label}</dt><dd>${esc(coachProfile[key])}</dd></div>`).join("")}</dl>` : ""}
+    <button class="primary" type="button" data-coach="chat">Mit Coach sprechen</button>
     <div class="coach-actions"><button class="link" type="button" data-coach="preferences">KI-Einstellungen</button>
     ${coachProfile.goal ? '<button class="link" type="button" data-coach="search">Suche starten</button>' : ""}</div>
   </section>
@@ -3581,7 +3694,7 @@ async function showCoach() {
   if (revision !== coachCVRevision) return;
   coachCV = file;
   updateSavedPortraitPreview(photo);
-  if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
+  if (!$("settingsCoach").classList.contains("hidden")) renderCoach();
 }
 
 function renderCoachPortrait() {
@@ -3749,21 +3862,6 @@ async function saveHeadshot() {
   renderCoachPortrait();
 }
 
-function saveCoachAnswer(answer) {
-  const value = answer.trim().slice(0,160), step = coachQuestions[coachQuestion];
-  if (!step || (!value && !step.optional)) return;
-  coachProfile[step.key] = value;
-  coachLastAnswer = value;
-  coachQuestion++;
-  if (coachQuestion >= coachQuestions.length) {
-    coachQuestion = -1;
-    coachProfile.ready = true;
-    toast("Suchprofil gespeichert");
-  }
-  saveCoachProfile();
-  renderCoach();
-}
-
 async function requestCoachCV() {
   if (coachBusy || !coachCV) return;
   coachBusy = true;
@@ -3791,7 +3889,7 @@ async function requestCoachCV() {
     if (revision === coachCVRevision) coachMessage = "Der Lebenslauf konnte nicht ausgewertet werden. Versuch es erneut.";
   } finally {
     coachBusy = false;
-    if (!$("settingsCoach").classList.contains("hidden") && coachQuestion < 0) renderCoach();
+    if (!$("settingsCoach").classList.contains("hidden")) renderCoach();
   }
 }
 
@@ -3811,10 +3909,9 @@ function searchFromCoach() {
 $("settingsCoach").onclick = event => {
   const button = event.target.closest("button");
   if (!button) return;
-  if (button.dataset.coachAnswer) return saveCoachAnswer(button.dataset.coachAnswer);
   switch (button.dataset.coach) {
+    case "chat": showSettingsPage("settingsCoachChat"); break;
     case "preferences": showSettingsPage("settingsCoachPreferences"); break;
-    case "skip": saveCoachAnswer(""); break;
     case "search": searchFromCoach(); break;
     case "analyze": requestCoachCV(); break;
     case "documents": showSettingsPage("settingsDocuments"); break;
@@ -3838,7 +3935,6 @@ $("portraitCapture").onchange = $("portraitFile").onchange = event => {
 
 $("settingsCoach").onsubmit = event => {
   event.preventDefault();
-  if (event.target.id === "coachAnswerForm") return saveCoachAnswer($("coachAnswer").value);
   if (event.target.id !== "coachFactsForm" || !coachSuggestions) return;
   const values = new FormData(event.target);
   coachProfile.facts = coachSuggestions.flatMap((fact,index)=>{
@@ -4640,6 +4736,7 @@ const settingsPages = {
   settingsDocuments:"Bewerbungsunterlagen",
   settingsCoach:"AI-Coach",
   settingsCoachPreferences:"KI-Einstellungen",
+  settingsCoachChat:"Mit Coach sprechen",
   settingsApp:"App-Informationen"
 };
 let settingsEntry = "settingsHome", settingsTrigger = null;
@@ -4648,7 +4745,7 @@ function showSettingsPage(page) {
   for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
   $("settingsTitle").textContent = settingsPages[page];
   $("settingsBack").classList.toggle("hidden",page === settingsEntry);
-  $("settingsBack").setAttribute("aria-label",page === "settingsDocuments" || page === "settingsCoachPreferences" || settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
+  $("settingsBack").setAttribute("aria-label",["settingsDocuments","settingsCoachPreferences","settingsCoachChat"].includes(page) || settingsEntry === "settingsCoach" ? "Zurück zum AI-Coach" : "Zurück zu Einstellungen");
   if (page === "settingsTemplate") {
     $("tName").value = tpl.name;
     $("tSubj").value = tpl.subj;
@@ -4659,13 +4756,11 @@ function showSettingsPage(page) {
     $("applicationFilesTitle").hidden = page === "settingsDocuments";
     renderApplicationFileSlots();
   }
-  if (page === "settingsCoach") {
-    coachQuestion = -1;
-    showCoach();
-  }
+  if (page === "settingsCoach") showCoach();
   if (page === "settingsCoachPreferences") renderCoachPreferences();
   if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
+  if (page === "settingsCoachChat") renderCoachChat(!!coachChat.messages.length || !!coachChat.pending);
   $("settingsTitle").focus({preventScroll:true});
 }
 function openSheet(entry = "settingsHome", trigger = $("gear")){
@@ -4696,7 +4791,8 @@ function closeSheet(restoreFocus = true){
 function backInSettings() {
   if (!$(settingsEntry).classList.contains("hidden")) return closeSheet();
   if (!$("settingsDocuments").classList.contains("hidden") ||
-      !$("settingsCoachPreferences").classList.contains("hidden")) return showSettingsPage("settingsCoach");
+      !$("settingsCoachPreferences").classList.contains("hidden") ||
+      !$("settingsCoachChat").classList.contains("hidden")) return showSettingsPage("settingsCoach");
   showSettingsPage(settingsEntry);
 }
 function setSearchEditing(editing) {
