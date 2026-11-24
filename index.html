@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="36">
+<meta name="jr-version" content="37">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -863,13 +863,18 @@ svg:not(.leaflet-zoom-animated){width:20px;height:20px;flex:none;stroke:currentC
 .coach-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px}
 .coach-actions .chip{white-space:normal}
 .coach-panel .primary{margin-top:6px}
-.coach-chat{display:grid;gap:10px}
+.sheet.coach-chat-open{display:flex;flex-direction:column;top:var(--coach-top,0px);bottom:auto;height:var(--coach-height,100dvh);max-height:none;border-radius:0;overflow:hidden;padding-bottom:10px}
+.coach-chat-open .sheet-head{flex:none}
+.coach-chat-open>.grab{display:none}
+.coach-chat{display:flex;flex-direction:column;flex:1;min-height:0;gap:6px}
+.coach-chat-thread{display:grid;align-content:start;gap:10px;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .coach-chat-log{display:grid;gap:8px;min-width:0}
 .coach-chat-log .coach-bubble{white-space:pre-wrap}
 .coach-chat-log .coach-answer{margin-left:24px}
-.coach-chat-form{display:grid;gap:6px;position:sticky;bottom:0;background:var(--card);padding:6px 0 10px}
-.coach-chat-form textarea{min-height:66px;resize:none}
-.coach-chat-form .primary{margin:0}
+.coach-chat-form{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:5px 8px;flex:none}
+.coach-chat-form .lbl,.coach-chat-form .hint{grid-column:1/-1;margin:0}
+.coach-chat-form textarea{min-height:0;resize:none;font-size:16px}
+.coach-chat-form .primary{width:auto;margin:0}
 .coach-chat-form .primary:disabled{opacity:.55}
 .coach-chat-proposal dd{overflow-wrap:anywhere}
 .coach-fact{margin:9px 0;padding-top:9px;border-top:1px solid var(--line)}
@@ -2759,6 +2764,7 @@ async function enrichContacts(searchState) {
 function fill(s, x){ return s.replace(/\{firma\}/g, () => x.name).replace(/\{name\}/g, () => tpl.name || ""); }
 function applicationVoice(tone) {
   const value = norm(tone);
+  if (value === "kurz, freundlich und direkt") return "concise-friendly";
   if (value.startsWith("locker") || value === "freundlich") return "friendly";
   return value === "kurz und direkt" ? "direct" : "formal";
 }
@@ -2766,7 +2772,7 @@ function applicationGreeting(x, tone = coachProfile.tone) {
   const person = x.c?.person;
   const voice = applicationVoice(tone);
   if (voice !== "formal") {
-    const friendly = voice === "friendly";
+    const friendly = voice === "friendly" || voice === "concise-friendly";
     const hello = friendly ? "Hallo" : "Guten Tag";
     if (!person) return friendly ? `Hallo liebes Team von ${x.name}` : `Guten Tag an das Team von ${x.name}`;
     const named = [person.address, person.title, person.address ? person.surname : person.name].filter(Boolean).join(" ");
@@ -3077,29 +3083,39 @@ function closeAssistant() {
   document.activeElement?.blur();
   (trigger?.isConnected ? trigger : document.querySelector(".card [data-a=assistant]"))?.focus();
 }
+function studyMentions(text, study) {
+  const subject = searchText(study);
+  if (!subject) return 0;
+  return text.split(/[.!?\n]+/).filter(sentence=>searchText(sentence).includes(subject) && /studier|studium|student/i.test(sentence)).length;
+}
+
 function templateDraft(x, answers, profile = coachProfile) {
   const roles = {
-    minijob:["Minijob","einem Minijob"], werkstudent:["Werkstudentenstelle","einer Werkstudentenstelle"],
-    teilzeit:["Teilzeit","einer Teilzeitstelle"], praktikum:["Praktikum","einem Praktikum"],
-    vollzeit:["Vollzeit","einer Vollzeitstelle"], ausbildung:["Ausbildung","einem Ausbildungsplatz"],
-    aushilfe:["Aushilfe","einer Stelle als Aushilfe"], nebenjob:["Nebenjob","einem Nebenjob"]
+    minijob:["Minijob","einen Minijob"], werkstudent:["Werkstudentenstelle","eine Werkstudentenstelle"],
+    teilzeit:["Teilzeit","eine Teilzeitstelle"], praktikum:["Praktikum","ein Praktikum"],
+    vollzeit:["Vollzeit","eine Vollzeitstelle"], ausbildung:["Ausbildung","einen Ausbildungsplatz"],
+    aushilfe:["Aushilfe","eine Stelle als Aushilfe"], nebenjob:["Nebenjob","einen Nebenjob"]
   };
   const selectedRole = norm(profile.role).replace(/^werkstudentin$/, "werkstudent");
   const roleKey = Object.hasOwn(roles,selectedRole) ? selectedRole : answers.role;
   const [title, role] = Object.hasOwn(roles,roleKey) ? roles[roleKey] : [];
   const subject = role ? `Initiativbewerbung – ${title}` : "Initiativbewerbung";
-  const introduction = profile.study ? `ich studiere ${profile.study} und ` : "ich ";
-  const opening = role ? `${introduction}suche nach ${role}. Bei ${x.name} würde ich gern mitarbeiten.`
-    : `${introduction}würde gern bei ${x.name} mitarbeiten.`;
+  const highlight = applicationHighlight(profile);
+  const introduction = profile.study && !studyMentions(highlight,profile.study) ? `ich studiere ${profile.study} und ` : "ich ";
+  const opening = role ? `${introduction}suche ${role} bei ${x.name}.` : `${introduction}würde gern bei ${x.name} mitarbeiten.`;
   const experience = {einstieg:"Ich möchte in die Branche einsteigen.", erfahrung:"Ich bringe Erfahrung in der Branche mit."}[answers.experience];
   const availability = applicationAvailability(profile.availability,answers.time);
   const strength = {zuverlaessig:"Ich arbeite zuverlässig.", organisiert:"Ich arbeite strukturiert und organisiert.", lernbereit:"Ich arbeite mich gern in neue Aufgaben ein.", kommunikativ:"Ich kommuniziere offen und gerne."}[answers.strength];
-  const facts = [experience, strength, availability].filter(Boolean).join(" ");
+  const voice = applicationVoice(profile.tone);
+  const repeatsExperience = /erfahr|praxis|praktik|gearbeit/i.test(highlight);
+  const useStrength = !highlight || (voice !== "concise-friendly" && voice !== "direct");
+  const facts = [highlight, repeatsExperience ? "" : experience, useStrength ? strength : "", availability].filter(Boolean).join(" ");
   const closing = {
+    "concise-friendly":"Haben Sie gerade oder demnächst Bedarf an Unterstützung?",
     friendly:"Haben Sie gerade oder demnächst Bedarf an Unterstützung? Ich freue mich, von Ihnen zu hören.",
     direct:"Gibt es bei Ihnen eine passende Möglichkeit zur Mitarbeit?",
     formal:"Haben Sie aktuell oder demnächst eine passende Möglichkeit zur Mitarbeit? Ich freue mich über Ihre Rückmeldung."
-  }[applicationVoice(profile.tone)];
+  }[voice];
   return {subject, body:[opening, facts, closing].filter(Boolean).join("\n\n")};
 }
 
@@ -3135,28 +3151,17 @@ function applicationSentence(text) {
   return sentence && !/[.!?]$/.test(sentence) ? sentence + "." : sentence;
 }
 
+function applicationHighlight(profile) {
+  const value = String(profile.highlight || "").trim();
+  const semester = value.match(/^(?:[\p{L}-]+\s+){0,3}(?:studentin|student)\s+im\s+(\d{1,2})\.\s*semester[.]?$/iu);
+  return semester && profile.study ? `Ich bin im ${semester[1]}. Semester.` : applicationSentence(value);
+}
+
 function formatApplicationDraft(body,greeting,name,profile = coachProfile) {
   const lines = body.trim().split(/\r?\n/);
   while (lines.length && (!lines[0].trim() || genericApplicationGreeting.test(lines[0].trim()) || applicationSalutation.test(lines[0].trim()))) lines.shift();
-  const text = lines.join("\n");
-  const paragraphs = text.split(/\n\s*\n/).filter(Boolean);
-  const study = searchText(profile.study);
-  const mentionsStudy = study && text.split(/[.!?\n]+/).some(sentence=>{
-    const words = searchText(sentence);
-    return words.includes(study) && /studier|studium|student/.test(words);
-  });
-  if (study && !mentionsStudy) {
-    if (paragraphs.length) paragraphs[0] = applicationSentence(paragraphs[0]);
-    paragraphs.unshift(`ich studiere ${profile.study}.`);
-  }
-  const semester = String(profile.highlight || "").match(/^(?:[\p{L}-]+\s+){0,3}(?:studentin|student)\s+im\s+(\d{1,2})\.\s*semester[.]?$/iu);
-  const highlightText = semester && study ? `Ich bin im ${semester[1]}. Semester.` : profile.highlight;
-  const highlight = searchText(highlightText);
-  if (highlight && !searchText(text).includes(highlight)) {
-    paragraphs.splice(1,0,applicationSentence(highlightText));
-  }
   const signoff = applicationVoice(profile.tone) === "formal" ? "Mit freundlichen Grüßen" : "Viele Grüße";
-  return [greeting + ",",...paragraphs,[signoff,name].filter(Boolean).join("\n")].join("\n\n");
+  return [greeting + ",",lines.join("\n").trim(),[signoff,name].filter(Boolean).join("\n")].filter(Boolean).join("\n\n");
 }
 
 async function applicationWebsiteDescription(x) {
@@ -3181,12 +3186,16 @@ async function aiDraft(config, x, industry, answers, profile = coachProfile, ret
   if (description) input.set("business_description",description);
   const target = [profile.role,profile.goal].filter(Boolean).join(" · ").slice(0,160);
   if (target) input.set("goal",target);
-  if (profile.availability) input.set("availability",profile.availability.slice(0,160));
+  const availability = applicationAvailability(profile.availability,answers.time);
+  if (availability) input.set("availability",availability.slice(0,160));
   const voice = applicationVoice(profile.tone);
-  const tone = voice === "friendly" ? "Locker, freundlich und natürlich. In der Sie-Form wie eine persönliche Nachricht schreiben."
+  const tone = voice === "concise-friendly" ? "Kurz, freundlich und direkt. Persönlich in natürlicher Alltagssprache mit Sie. Keine Floskeln."
+    : voice === "friendly" ? "Locker, freundlich und natürlich. In der Sie-Form wie eine persönliche Nachricht schreiben."
     : voice === "direct" ? "Kurz, direkt, natürliche Alltagssprache mit Sie. Wenige Sätze und keine Floskeln." : profile.tone;
   if (tone) input.set("tone",tone.slice(0,160));
-  if (profile.study) input.append("profile_fact",`Ich studiere ${profile.study}.`);
+  if (profile.study) input.set("study",profile.study.slice(0,80));
+  const highlight = applicationHighlight(profile);
+  if (highlight) input.set("highlight",highlight.slice(0,160));
   const terms = new Set(searchText([x.name,industry,description].join(" ")).split(/\W+/).filter(word=>word.length > 3));
   const facts = coachProfile.facts.map(fact=>({claim:fact.claim,score:searchText(fact.claim).split(/\W+/).filter(word=>terms.has(word)).length}));
   facts.sort((a,b)=>b.score-a.score);
@@ -3197,6 +3206,7 @@ async function aiDraft(config, x, industry, answers, profile = coachProfile, ret
   const parsed = JSON.parse(reply.text);
   if (typeof parsed.subject !== "string" || !parsed.subject.trim() || parsed.subject.length > 150 || /[\r\n]/.test(parsed.subject)
     || typeof parsed.body !== "string" || !parsed.body.trim() || parsed.body.length > 2000) return null;
+  if (profile.study && studyMentions(parsed.body,profile.study) !== 1) return null;
   return {subject:parsed.subject.trim(), body:parsed.body.trim()};
 }
 async function generateAssistantDraft(useAI) {
@@ -3444,7 +3454,7 @@ $("applicationFileSlots").onclick = event => {
 
 /* ---------- AI-Coach ---------- */
 const coachRoles = ["Minijob","Werkstudentin","Teilzeit","Praktikum","Vollzeit"];
-const coachTones = ["Kurz und direkt","Locker und freundlich","Formell"];
+const coachTones = ["Kurz, freundlich und direkt","Kurz und direkt","Locker und freundlich","Formell"];
 const coachFields = {
   role:{label:"Arbeitsform",limit:160}, goal:{label:"Suchziel",limit:160},
   availability:{label:"Verfügbarkeit",limit:160}, tone:{label:"Schreibstil",limit:160},
@@ -3499,10 +3509,21 @@ function persistCoachChat() {
   store.set(coachChatKey,{messages,proposal});
 }
 
+function positionCoachChat() {
+  const sheet = $("sheet");
+  if (!sheet.classList.contains("coach-chat-open")) return;
+  const viewport = window.visualViewport;
+  sheet.style.setProperty("--coach-top",`${viewport?.offsetTop || 0}px`);
+  sheet.style.setProperty("--coach-height",`${viewport?.height || window.innerHeight}px`);
+}
+window.visualViewport?.addEventListener("resize",positionCoachChat);
+window.visualViewport?.addEventListener("scroll",positionCoachChat);
+
 function renderCoachChat(scroll = false) {
   const box = $("settingsCoachChat");
   const {messages,pending,proposal,error,activation,input} = coachChat;
-  box.innerHTML = `${messages.length ? "" : `<p class="coach-bubble">Was möchtest du in deinen Bewerbungen sagen oder anders formulieren?</p>
+  const styleOnly = proposal && Object.keys(proposal.updates).length === 1 && Object.hasOwn(proposal.updates,"tone");
+  box.innerHTML = `<div class="coach-chat-thread" id="coachChatThread">${messages.length ? "" : `<p class="coach-bubble">Was möchtest du in deinen Bewerbungen sagen oder anders formulieren?</p>
     ${Object.values(coachChatProfile()).some(Boolean) ? `<div class="coach-actions"><button class="chip" type="button" data-coach-chat="polish" ${pending ? "disabled" : ""}>Profil überarbeiten</button></div>` : ""}`}
     <div class="coach-chat-log" role="log" aria-label="Gespräch">${messages.map(({role,text})=>
       `<div class="coach-bubble${role === "user" ? " coach-answer" : ""}"><strong>${role === "user" ? "Du" : "AI-Coach"}</strong><br>${esc(text)}</div>`).join("")}
@@ -3512,20 +3533,21 @@ function renderCoachChat(scroll = false) {
       <h3 class="coach-title">Vorschlag für dein Profil</h3>
       <dl class="coach-profile">${Object.entries(proposal.updates).map(([key,value])=>
         `<div><dt>${coachFields[key].label}</dt><dd>${value ? esc(value) : "Entfernen"}</dd></div>`).join("")}</dl>
-      <div class="coach-actions"><button class="link" type="button" data-coach-chat="apply" ${pending ? "disabled" : ""}>Übernehmen</button>
+      <div class="coach-actions"><button class="link" type="button" data-coach-chat="apply" ${pending ? "disabled" : ""}>${styleOnly ? "Schreibstil übernehmen" : "Übernehmen"}</button>
       <button class="link" type="button" data-coach-chat="discard" ${pending ? "disabled" : ""}>Verwerfen</button></div>
     </section>` : ""}
     ${error ? `<p class="coach-bubble" role="alert">${esc(error)}</p>` : ""}
     ${activation ? `<div class="coach-actions"><code class="assistant-code">${esc(activation)}</code>
       <button class="link" type="button" data-coach-chat="share">Freischaltcode teilen</button></div>` : ""}
+    ${messages.length && !proposal && !pending ? `<div class="coach-actions"><button class="link" type="button" data-coach-chat="reset">Neuer Chat</button></div>` : ""}
+    </div>
     <form id="coachChatForm" class="coach-chat-form">
       <label class="lbl" for="coachChatInput">Nachricht an den Coach</label>
-      <textarea id="coachChatInput" name="message" rows="2" maxlength="1200" placeholder="z. B. Ich studiere Pharmazie im 5. Semester." required ${pending ? "disabled" : ""}>${esc(input)}</textarea>
-      <p class="hint">Beim Absenden werden das Gespräch und dein Bewerbungsprofil an OpenAI gesendet.</p>
-      <button class="primary" type="submit" ${pending ? "disabled" : ""}>Nachricht senden</button>
-      ${messages.length ? `<button class="link" type="button" data-coach-chat="reset" ${pending ? "disabled" : ""}>Neuer Chat</button>` : ""}
+      <textarea id="coachChatInput" name="message" rows="2" maxlength="1200" required ${pending ? "disabled" : ""}>${esc(input)}</textarea>
+      <button class="primary" type="submit" aria-label="Nachricht senden" ${pending ? "disabled" : ""}>Senden</button>
+      <p class="hint">Chat und Bewerbungsprofil werden beim Senden an OpenAI gesendet.</p>
     </form>`;
-  if (scroll && $("sheet").classList.contains("open")) $("sheet").scrollTop = $("sheet").scrollHeight;
+  if (scroll) $("coachChatThread").scrollTop = $("coachChatThread").scrollHeight;
 }
 
 async function sendCoachChat(message) {
@@ -3588,7 +3610,7 @@ $("settingsCoachChat").onclick = event => {
     if (Object.keys(updates).some(key=>current[key] !== base[key])) {
       coachChat.error = "Dein Profil wurde inzwischen geändert. Bitte den Coach um einen neuen Vorschlag.";
     } else if (!updateCoachPreferences(updates)) return;
-    else { coachChat.error = ""; toast("Profil übernommen"); }
+    else { coachChat.error = ""; toast(Object.keys(updates).length === 1 && Object.hasOwn(updates,"tone") ? "Schreibstil übernommen" : "Profil übernommen"); }
     coachChat.proposal = null;
   } else if (action === "discard") coachChat.proposal = null;
   else if (action === "reset") Object.assign(coachChat,{messages:[],proposal:null,input:"",error:"",activation:""});
@@ -4742,6 +4764,7 @@ const settingsPages = {
 let settingsEntry = "settingsHome", settingsTrigger = null;
 
 function showSettingsPage(page) {
+  $("sheet").classList.toggle("coach-chat-open",page === "settingsCoachChat");
   for (const id of Object.keys(settingsPages)) $(id).classList.toggle("hidden", id !== page);
   $("settingsTitle").textContent = settingsPages[page];
   $("settingsBack").classList.toggle("hidden",page === settingsEntry);
@@ -4760,7 +4783,10 @@ function showSettingsPage(page) {
   if (page === "settingsCoachPreferences") renderCoachPreferences();
   if (page === "settingsApp") $("websiteDetails").classList.toggle("hidden", !S.q);
   $("sheet").scrollTop = 0;
-  if (page === "settingsCoachChat") renderCoachChat(!!coachChat.messages.length || !!coachChat.pending);
+  if (page === "settingsCoachChat") {
+    positionCoachChat();
+    renderCoachChat(!!coachChat.messages.length || !!coachChat.pending);
+  }
   $("settingsTitle").focus({preventScroll:true});
 }
 function openSheet(entry = "settingsHome", trigger = $("gear")){
