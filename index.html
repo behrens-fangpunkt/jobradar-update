@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="37">
+<meta name="jr-version" content="38">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -2099,11 +2099,13 @@ function cleanMail(m){
   if (BAD_EXT.some(e => m.endsWith(e)) || BAD_MAIL.some(b => m.includes(b))) return null;
   return m;
 }
+const CONTACT_SCAN_VERSION = 3;
 const CONTACT_ROLES = [
   [/^(?:Ansprechpartner(?:in)?|Kontaktperson)\s+f(?:ü|ue)r\s+(?:(?:Ihre|deine|eine)\s+)?(?:Bewerbung(?:en)?|Karriere|Personal)\b/i, 90],
   [/^(?:Personalreferentin|Recruiterin|Personalleiterin|Personalchefin)\b/i, 90, "Frau"],
   [/^(?:Personalreferent|Recruiter|Personalleiter|Personalchef)\b/i, 90, "Herr"],
   [/^(?:Personalabteilung|Personalleitung|Recruiting|Personalverantwortung)\b/i, 85],
+  [/^(?:Inhaber|Geschäftsführer|Filialleiter|Praxisinhaber)\s*(?:[/:*_·]\s*-?\s*in\b|\(\s*in\s*\))/i, 70],
   [/^(?:Inhaberin|Geschäftsführerin|Filialleiterin|Praxisinhaberin)\b/i, 70, "Frau"],
   [/^(?:Inhaber|Geschäftsführer|Filialleiter|Praxisinhaber)\b/i, 70, "Herr"],
   [/^(?:Geschäftsführung|Apothekenleitung|Praxisleitung|Filialleitung|Vertreten\s+durch)\b/i, 65],
@@ -2124,7 +2126,8 @@ function parseContactName(value, roleAddress = "") {
   const title = /^(?:Prof\.\s+)?Dr\.(?:\s+(?:med\.\s+dent\.|med\.|rer\.\s+nat\.))?\s+|^Prof\.\s+/i.exec(value);
   if (title) value = value.slice(title[0].length);
   value = value.replace(/^(?:(?:B|M)\.\s*(?:A|Sc|Eng|Ed|Mus)\.\s+|MBA\s+|Dipl\.-(?:Ing|Des|Kfm)\.\s+)+/i, "");
-  const name = value.split(/\s*[,;(|]|\s+[–—-]\s+/u, 1)[0].trim();
+  const name = value.split(/\s*[,;(|]|\s+[–—-]\s+/u, 1)[0].trim()
+    .replace(/\s+e\.\s*K(?:fm|fr)?\.?$/i, "");
   const words = name.split(/\s+/);
   if (name.length > 85 || words.length < (explicit ? 1 : 2) || words.length > 6 || NON_PERSON.test(name)) return null;
   if (!NAME_WORD.test(words[0]) || !NAME_WORD.test(words[words.length - 1]) ||
@@ -2263,7 +2266,7 @@ async function crawl(site){
   const home = extract(r.text);
   res.orgName = home.orgName.trim();
   res.websiteDescription = sameBusinessSite(host,new URL(final).hostname) ? home.websiteDescription : "";
-  res.contactVersion = 2;
+  res.contactVersion = CONTACT_SCAN_VERSION;
   let mails = home.mails, phones = home.phones, hints = home.hints, jobMails = [];
   const homeURL = new URL(final);
   const people = home.people.map(person => ({...person, source:final}));
@@ -2384,7 +2387,7 @@ const save = () => store.set("jr_last", S);
 
 const emailsOf = x => uniq([...(x.c?.emails || []), x.email].filter(Boolean)
   .flatMap(e => e.split(/[;,]\s*/)).map(cleanMail).filter(m => m && !THIRD_PARTY_MAIL.test(m)));
-const needsContactScan = x => !!x.website && (!x.c || (!x.c.person && x.c.contactVersion !== 2));
+const needsContactScan = x => !!x.website && (!x.c || (!x.c.person && x.c.contactVersion !== CONTACT_SCAN_VERSION));
 const contactScans = new WeakMap();
 const applicationsInProgress = new WeakSet();
 function scanContact(x) {
@@ -3180,9 +3183,7 @@ async function applicationWebsiteDescription(x) {
 
 async function aiDraft(config, x, industry, answers, profile = coachProfile, retryRateLimit = false) {
   const input = new URLSearchParams({...config.credentials, company:x.name.slice(0,140), industry:industry.slice(0,80), ...answers});
-  const location = x.address?.replace(/\s+/g," ").trim().slice(0,130);
   const description = await applicationWebsiteDescription(x);
-  if (location) input.set("business_location",location);
   if (description) input.set("business_description",description);
   const target = [profile.role,profile.goal].filter(Boolean).join(" · ").slice(0,160);
   if (target) input.set("goal",target);
