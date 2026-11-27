@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<meta name="jr-version" content="39">
+<meta name="jr-version" content="40">
 <meta name="jr-native" content="2">
 <title>JobRadr</title>
 <style>
@@ -2096,10 +2096,15 @@ function cleanMail(m){
   try { m = decodeURIComponent(m); } catch(e){}
   m = m.trim().replace(/^[.,;:<>()\[\]"']+|[.,;:<>()\[\]"']+$/g, "").toLowerCase();
   if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(m)) return null;
+  const [local,domain] = m.split("@");
+  if (local.length > 64 || m.length > 254 || local.includes("..") || /^[.]|[.]$/.test(local) ||
+      !domain.split(".").every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) ||
+      /^(?:no[._-]?reply|do[._-]?not[._-]?reply|webmaster|mailer-daemon|postmaster)(?:[._+-]|$)/i.test(local)) return null;
   if (BAD_EXT.some(e => m.endsWith(e)) || BAD_MAIL.some(b => m.includes(b))) return null;
   return m;
 }
 const CONTACT_SCAN_VERSION = 3;
+const EMAIL_SCAN_VERSION = 1;
 const CONTACT_ROLES = [
   [/^(?:Ansprechpartner(?:in)?|Kontaktperson)\s+f(?:ü|ue)r\s+(?:(?:Ihre|deine|eine)\s+)?(?:Bewerbung(?:en)?|Karriere|Personal)\b/i, 90],
   [/^(?:Personalreferentin|Recruiterin|Personalleiterin|Personalchefin)\b/i, 90, "Frau"],
@@ -2221,11 +2226,68 @@ function businessDescription(doc) {
   return description.replace(/\s+/g," ").trim().slice(0,320);
 }
 
+function publishedEmails(doc) {
+  const mails = [];
+  for (const el of doc.querySelectorAll("[data-cfemail],joomla-hidden-mail,[itemprop=email]")) {
+    try {
+      const encoded = el.getAttribute("data-cfemail");
+      if (encoded && /^(?:[0-9a-f]{2}){2,300}$/i.test(encoded)) {
+        const key = parseInt(encoded.slice(0,2),16);
+        mails.push(encoded.slice(2).match(/../g).map(pair=>String.fromCharCode(parseInt(pair,16)^key)).join(""));
+      } else if (el.localName === "joomla-hidden-mail") {
+        mails.push(atob(el.getAttribute("first") || "")+"@"+atob(el.getAttribute("last") || ""));
+      } else if (el.matches("[itemprop=email]")) {
+        mails.push((el.getAttribute("content") || el.textContent).trim().replace(/^mailto:/i,""));
+      }
+    } catch (_) { /* An invalid encoding is not an address. */ }
+  }
+  return mails;
+}
+
+function structuredContacts(doc) {
+  const records = [];
+  for (const script of doc.querySelectorAll('script[type="application/ld+json" i]')) {
+    let root;
+    try { root = JSON.parse(script.textContent); } catch (_) { continue; }
+    const queue = [root];
+    for (let i=0; i<queue.length && i<200; i++) {
+      const value = queue[i];
+      if (Array.isArray(value)) { queue.push(...value.slice(0,80)); continue; }
+      if (!value || typeof value !== "object") continue;
+      const {name,address,telephone,email,contactPoint} = value;
+      if (typeof name === "string") {
+        const points = [].concat(contactPoint || []).filter(p=>p && !/datenschutz|privacy|press|presse/i.test(String(p.contactType || "")));
+        const emails = [email,...points.map(p=>p.email)].flat().filter(v=>typeof v === "string")
+          .map(v=>cleanMail(v.replace(/^mailto:/i,""))).filter(Boolean);
+        const place = typeof address === "string" ? address : [address?.streetAddress,address?.postalCode,address?.addressLocality].filter(Boolean).join(" ");
+        if (emails.length) records.push({name,place,telephone,emails});
+      }
+      queue.push(value["@graph"],value.mainEntity,value.department,value.location);
+    }
+  }
+  return records;
+}
+
+const pageLinks = root => [...root.querySelectorAll("a[href]")].map(a =>
+  [a.getAttribute("href").trim(), (a.textContent || "").replace(/\s+/g," ").trim()]);
+function templateContactLinks(doc) {
+  const queue = [...doc.querySelectorAll("template")], links = [];
+  // Menu entries may live in inert templates. Read their static hrefs without running site code.
+  for (let i=0;i<queue.length && i<60;i++) {
+    const fragment = queue[i].content;
+    links.push(...pageLinks(fragment).slice(0,300));
+    queue.push(...fragment.querySelectorAll("template"));
+  }
+  return links;
+}
+
 function extract(html){
   const doc = new DOMParser().parseFromString(html, "text/html");
-  let mails = literalMailLinks(doc);
+  let mails = [...literalMailLinks(doc),...publishedEmails(doc)];
+  const structured = structuredContacts(doc);
+  const templateLinks = templateContactLinks(doc);
   doc.querySelectorAll("script,style,noscript,template,svg").forEach(e => e.remove());
-  const links = [...doc.querySelectorAll("a[href]")].map(a => [a.getAttribute("href").trim(), (a.textContent || "").replace(/\s+/g," ").trim()]);
+  const links = pageLinks(doc);
   const parts = [];
   if (doc.body) {
     const w = doc.createTreeWalker(doc.body, 4 /* NodeFilter.SHOW_TEXT */);
@@ -2247,20 +2309,121 @@ function extract(html){
   const low = text.toLowerCase();
   const hints = HINT_KW.filter(h => low.includes(h.toLowerCase()));
   const orgName = doc.querySelector('meta[property="og:site_name"]')?.content || doc.title;
-  return {links, mails, phones: cleanPhones, hints, people: extractPeople(doc.body), orgName, websiteDescription:businessDescription(doc)};
+  return {links, templateLinks, mails, phones: cleanPhones, hints, people: extractPeople(doc.body), orgName, text, structured, websiteDescription:businessDescription(doc)};
 }
 function sameBusinessSite(host, site) {
   const a = host.toLowerCase().replace(/^www\./, "");
   const b = site.toLowerCase().replace(/^www\./, "");
   return a === b || a.endsWith("." + b) || b.endsWith("." + a);
 }
-async function crawl(site){
+function contactAddress(value) {
+  return searchText(value).replace(/([a-z])str(?= |$)/g,"$1strasse");
+}
+function contactAffiliation(company, text, phones, external = false) {
+  const probe = contactAddress(text);
+  if (!containsPhrase(probe,company.name)) return false;
+  const street = contactAddress((company.address || "").split(",")[0]);
+  const phone = (company.phone || "").replace(/\D/g,"");
+  const matchesAddress = /\d/.test(street) && containsPhrase(probe,street);
+  const matchesPhone = phone.length >= 7 && phones.some(value=>String(value).replace(/\D/g,"").endsWith(phone.slice(-8)));
+  return matchesAddress || matchesPhone || (!external && !/\d/.test(street));
+}
+
+function sourceEmailCandidates(company, sources, officialHost = "") {
+  const candidates = [];
+  for (const {url,page,external} of sources) {
+    const host = new URL(url).hostname;
+    const ownPage = !!officialHost && sameBusinessSite(host,officialHost);
+    if (!ownPage && !external) continue;
+    for (const record of page.structured) {
+      if (contactAffiliation(company,`${record.name} ${record.place}`,[record.telephone],!ownPage)) {
+        candidates.push(...record.emails.map(email=>({email,url,rank:ownPage ? 10 : 6})));
+      }
+    }
+    if (!contactAffiliation(company,`${page.orgName} ${page.text}`,page.phones,!ownPage)) continue;
+    for (const email of page.mails) {
+      const domain = email.split("@")[1];
+      const ownDomain = officialHost && sameBusinessSite(domain,officialHost);
+      const provider = /^(?:gmail\.com|googlemail\.com|web\.de|gmx\.(?:de|net)|t-online\.de|outlook\.(?:de|com)|hotmail\.(?:de|com))$/i.test(domain);
+      // A third-party page needs local evidence for the actual address, not just a company mention in a sidebar.
+      const offset = page.text.toLowerCase().indexOf(email);
+      const excerpt = offset < 0 ? "" : page.text.slice(Math.max(0,offset-1400),offset+400);
+      const thirdParty = /(?:datenschutzbeauftrag|verantwortlich f(?:ü|ue)r den datenschutz|aufsichtsbehörde|apothekerkammer|webdesign)\s*[:–-]?[^.!?]{0,85}$/i
+        .test(excerpt.slice(0,Math.min(offset,1400)));
+      if (thirdParty) continue;
+      const located = offset >= 0 && contactAffiliation(company,excerpt,page.phones,!ownPage);
+      const pageNamesCompany = containsPhrase(searchText(page.orgName),company.name);
+      if (ownPage ? ((ownDomain || provider) && (located || pageNamesCompany))
+        : offset >= 0 && (domain !== host || contactPageType(url)) && contactAffiliation(company,excerpt,[],true)) {
+        const preferred = /bewerb|karriere|personal|recruit/.test(email.split("@")[0]);
+        candidates.push({email,url,rank:(ownPage ? 4 : 1)+(preferred ? 3 : 0)});
+      }
+    }
+  }
+  return uniq(candidates.filter(item=>!THIRD_PARTY_MAIL.test(item.email)).sort((a,b)=>b.rank-a.rank),item=>item.email);
+}
+
+const emailDomainChecks = new Map();
+function emailDomainAcceptsMail(domain) {
+  if (!emailDomainChecks.has(domain)) {
+    const lookup = async type => {
+      const r = await request(`https://dns.google/resolve?name=${encodeURIComponent(domain)}&type=${type}`,{timeout:4000,max:16000});
+      if (!r.ok) throw Error("dns_unavailable");
+      const data = JSON.parse(r.text);
+      if (data.Status !== 0 && data.Status !== 3) throw Error("dns_unavailable");
+      return data.Answer || [];
+    };
+    if (emailDomainChecks.size >= 400) emailDomainChecks.delete(emailDomainChecks.keys().next().value);
+    const check = (async()=>{
+      const mx = (await lookup("MX")).filter(r=>r.type===15);
+      if (mx.length) return mx.some(r=>String(r.data).trim().split(/\s+/).at(-1) !== ".");
+      const ip = await Promise.allSettled([lookup("A"),lookup("AAAA")]);
+      if (ip.some(r=>r.status === "fulfilled" && r.value.some(a=>a.type===1 || a.type===28))) return true;
+      if (ip.some(r=>r.status === "rejected")) throw Error("dns_unavailable");
+      return false;
+    })().catch(error=>{emailDomainChecks.delete(domain); throw error;});
+    emailDomainChecks.set(domain,check);
+  }
+  return emailDomainChecks.get(domain);
+}
+
+async function verifiedEmails(company,sources,officialHost) {
+  const candidates = sourceEmailCandidates(company,sources,officialHost).slice(0,10);
+  const checked = await Promise.allSettled(candidates.map(item=>emailDomainAcceptsMail(item.email.split("@")[1])));
+  const valid = candidates.filter((_,i)=>checked[i].status === "fulfilled" && checked[i].value).slice(0,4);
+  return {emails:valid.map(item=>item.email),emailSources:Object.fromEntries(valid.map(item=>[item.email,item.url]))};
+}
+
+function deeperContactPages(company,homeURL,sources) {
+  const visited = new Set(sources.map(({url})=>websiteKey(url)));
+  const branch = homeURL.pathname.split("/").filter(Boolean)[0];
+  const paths = [];
+  for (const {url,page} of sources) for (const [href,label] of [...page.links,...page.templateLinks]) {
+    let target;
+    try { target = new URL(href,url); } catch (_) { continue; }
+    if (!/^https?:$/.test(target.protocol) || target.username || target.password || !sameBusinessSite(homeURL.hostname,target.hostname)) continue;
+    target.hash = "";
+    const key = websiteKey(target.href), probe = searchText(target.pathname+" "+label);
+    if (visited.has(key) || /(?:datenschutz|privacy|cookies|agb|checkout|login|products|produkte|media|adventskalender|coupons|angebote|\.(?:pdf|png|jpg|zip)\b)/i.test(target.pathname)) continue;
+    const name = containsPhrase(probe,company.name);
+    const branchPage = branch && target.pathname.startsWith(`/${branch}/`) &&
+      /\/(?:apotheke|filiale|standort|store|location|kontakt|impressum)(?:[-_][\w-]+|\d+)?\/?$/i.test(target.pathname);
+    const contact = /impressum|imprint|kontakt|contact|standort|filiale|team|ueber uns|about/.test(probe);
+    if (!name && !branchPage && !contact) continue;
+    visited.add(key);
+    paths.push({url:target.href,rank:(name ? 8 : 0)+(branchPage ? 15 : 0)+(contact ? 2 : 0)});
+  }
+  return paths.sort((a,b)=>b.rank-a.rank).slice(0,4).map(entry=>entry.url);
+}
+
+async function crawl(site, company = null){
   let url = /^https?:\/\//i.test(site) ? site : "https://" + site;
   const res = {emails:[], phones:[], jobs:"", hints:[], error:""};
   let host = ""; try { host = new URL(url).hostname; } catch(e){ res.error = "Ungültige Webseite"; return res; }
   if (SOCIAL.test(host)) { res.error = "Nur Social-Media-Seite hinterlegt"; return res; }
-  let r = await request(url, {ua: BROWSER_UA, timeout: 12000});
-  if (!r.ok && url.startsWith("https://")) { const r2 = await request("http://" + url.slice(8), {ua: BROWSER_UA, timeout: 12000}); if (r2.ok) r = r2; }
+  const pageOptions = {ua:BROWSER_UA,timeout:10000,max:1800000};
+  let r = await request(url,pageOptions);
+  if (!r.ok && url.startsWith("https://")) { const r2 = await request("http://" + url.slice(8),pageOptions); if (r2.ok) r = r2; }
   if (!r.ok) { res.error = r.status ? "Webseite antwortet nicht (" + r.status + ")" : "Webseite nicht erreichbar"; return res; }
   const final = r.url || url;
   const home = extract(r.text);
@@ -2269,6 +2432,7 @@ async function crawl(site){
   res.contactVersion = CONTACT_SCAN_VERSION;
   let mails = home.mails, phones = home.phones, hints = home.hints, jobMails = [];
   const homeURL = new URL(final);
+  const sources = [{url:final,page:home}];
   const people = home.people.map(person => ({...person, source:final}));
   const jobs = [], contact = new Map();
   for (const [href, txt] of home.links) {
@@ -2298,13 +2462,14 @@ async function crawl(site){
   for (const u of J.slice(0, 2)) targets.set(u, "job");
   const pages = [...targets].filter(([u]) => u.replace(/\/$/, "") !== final.replace(/\/$/, ""));
   const subs = await Promise.all(pages.map(([u, type]) =>
-    request(u, {ua: BROWSER_UA, timeout: 10000}).then(x => [type, u, x])));
+    request(u,pageOptions).then(x => [type, u, x])));
   for (const [type, u, x] of subs) {
     if (!x.ok) continue;
     const e = extract(x.text);
     (type === "job" ? jobMails : mails).push(...e.mails);
     phones.push(...e.phones); hints.push(...e.hints);
     if (sameBusinessSite(new URL(x.url || u).hostname, homeURL.hostname)) {
+      sources.push({url:x.url || u,page:e});
       const priority = type === "impressum" ? 3 : type === "kontakt" || type === "job" ? 2 : 1;
       people.push(...e.people.map(p => ({...p, rank:p.rank + priority, source:x.url || u})));
     }
@@ -2318,6 +2483,19 @@ async function crawl(site){
     return {mail, priority: away + (i < 0 ? MAIL_PRIO.length : i)};
   });
   res.emails = ranked.sort((a, b) => a.priority - b.priority).slice(0, 4).map(entry => entry.mail);
+  if (company && !emailsOf(company).length) {
+    const identity = {...company,name:company.name || res.orgName};
+    let verified = await verifiedEmails(identity,sources,homeURL.hostname);
+    if (!verified.emails.length) {
+      const deeper = await Promise.all(deeperContactPages(identity,homeURL,sources).map(async url=>{
+        const page = await request(url,pageOptions);
+        const actual = page.url || url;
+        return page.ok && sameBusinessSite(new URL(actual).hostname,homeURL.hostname) ? {url:actual,page:extract(page.text)} : null;
+      }));
+      verified = await verifiedEmails(identity,[...sources,...deeper.filter(Boolean)],homeURL.hostname);
+    }
+    Object.assign(res,verified,{emailScanVersion:EMAIL_SCAN_VERSION});
+  } else if (company) res.emails = [];
   res.phones = uniq(phones, p => p.replace(/\D/g,"").slice(-8)).slice(0, 2);
   res.hints = uniq(hints).slice(0, 5);
   return res;
@@ -2385,18 +2563,27 @@ let chosenLoc = store.get("jr_loc", null);
 let view = store.get("jr_view", "list");
 const save = () => store.set("jr_last", S);
 
-const emailsOf = x => uniq([...(x.c?.emails || []), x.email].filter(Boolean)
+const emailsOf = x => uniq([...Object.keys(x.c?.emailSources || {}), x.email, ...(x.c?.emails || [])].filter(Boolean)
   .flatMap(e => e.split(/[;,]\s*/)).map(cleanMail).filter(m => m && !THIRD_PARTY_MAIL.test(m)));
-const needsContactScan = x => !!x.website && (!x.c || (!x.c.person && x.c.contactVersion !== CONTACT_SCAN_VERSION));
+const needsContactScan = x => !!x.website && (!x.c || (!x.c.error && !x.c.person && x.c.contactVersion !== CONTACT_SCAN_VERSION) ||
+  (!emailsOf(x).length && x.c.emailScanVersion !== EMAIL_SCAN_VERSION));
 const contactScans = new WeakMap();
 const applicationsInProgress = new WeakSet();
-function scanContact(x) {
-  if (!needsContactScan(x)) return Promise.resolve();
+function scanContact(x,force = false) {
   if (contactScans.has(x)) return contactScans.get(x);
-  const scan = crawl(x.website)
-    .then(result => { if (!result.error || !x.c) x.c = result; })
+  if (!x.website || (!force && !needsContactScan(x))) return Promise.resolve();
+  const scan = crawl(x.website,x)
+    .then(result => {
+      const emailScanVersion = emailsOf(x).length ? x.c?.emailScanVersion : EMAIL_SCAN_VERSION;
+      if (result.error && x.c) { x.c = {...x.c,emailScanVersion}; return; }
+      const previous = x.c || {};
+      x.c = {...previous,...result,emailScanVersion,person:result.person || previous.person,
+        jobs:result.jobs || previous.jobs || "",phones:uniq([...(result.phones || []),...(previous.phones || [])]).slice(0,2),
+        emailSources:{...previous.emailSources,...result.emailSources},
+        emails:uniq([...(result.emails || []),...(previous.emails || [])])};
+    })
     .catch(() => {
-      if (!x.c) x.c = {emails:[], phones:[], jobs:"", hints:[], error:"Fehler beim Durchsuchen"};
+      x.c = {...(x.c || {emails:[],phones:[],jobs:"",hints:[],error:"Fehler beim Durchsuchen"}),emailScanVersion:EMAIL_SCAN_VERSION};
     })
     .finally(() => contactScans.delete(x));
   contactScans.set(x, scan);
@@ -2433,7 +2620,11 @@ function card(x){
       ? ` <button type="button" class="contact-source act" data-a="contact-source">Quelle</button>` : "";
     contacts += `<div>${icon("person")}<span>${esc(c.person.name)}${source}</span></div>`;
   }
-  mails.slice(0, 2).forEach(m => contacts += `<div>${icon("mail")}<span>${esc(m)}</span></div>`);
+  mails.slice(0, 2).forEach((m,i) => {
+    const source = x.c?.emailSources?.[m];
+    const link = /^https?:\/\//i.test(source || "") ? ` <button type="button" class="contact-source act" data-a="email-source-${i}" aria-label="Quelle für ${esc(m)}">Quelle</button>` : "";
+    contacts += `<div>${icon("mail")}<span>${esc(m)}${link}</span></div>`;
+  });
   phones.slice(0, 1).forEach(p => contacts += `<div>${icon("phone")}<span>${esc(p)}</span></div>`);
   let note = "";
   if (x.state === "run") note = `<div class="scan"></div>`;
@@ -2459,7 +2650,7 @@ function card(x){
     <div class="actions">${a}</div></article>`;
 }
 function visible(){
-  const it = S.items;
+  const it = S.items.filter(x=>emailsOf(x).length);
   if (filter === "jobs") return it.filter(x => x.c && x.c.jobs);
   if (filter === "contact") return it.filter(hasDirectContact);
   if (filter === "open") return it.filter(x => !isApplied(x));
@@ -2473,10 +2664,11 @@ function orderedResults(items) {
     .map(item=>item.x);
 }
 function renderFilters(){
-  const it = S.items, crawled = it.some(x => x.c);
-  const defs = [["all","Alle",it.length]];
+  const it = S.items.filter(x=>emailsOf(x).length), crawled = it.some(x => x.c);
+  const missing = S.items.length-it.length;
+  const defs = [["all","Mit E-Mail",it.length]];
   if (crawled) defs.push(["jobs","Mit Jobseite", it.filter(x => x.c && x.c.jobs).length]);
-  defs.push(["contact","Mit Kontakt", it.filter(hasDirectContact).length]);
+  if (missing || filter === "missing-email") defs.push(["missing-email","Ohne E-Mail",missing]);
   defs.push(["open","Offen", it.filter(x => !isApplied(x)).length]);
   defs.push(["applied","Beworben", it.filter(isApplied).length]);
   $("filters").innerHTML = defs.map(([k, l, n]) => `<button class="chip${filter === k ? " on" : ""}" data-f="${k}">${l}<i>${n}</i></button>`).join("");
@@ -2487,12 +2679,13 @@ function render(changedCards){
   const loading = !$("loading").classList.contains("hidden");
   const showResults = !editing && !loading;
   const hasMap = S.items.some(x => Number.isFinite(x.lat) && Number.isFinite(x.lon));
-  const showMap = hasMap && view === "map" && showResults;
+  const missingEmail = filter === "missing-email";
+  const showMap = hasMap && view === "map" && showResults && !missingEmail;
   document.documentElement.classList.toggle("map-mode", showMap);
   $("panel").classList.toggle("hidden", has && !editing);
   $("summary").classList.toggle("hidden", !has);
   $("filters").classList.toggle("hidden", !S.items.length || !showResults);
-  $("dock").classList.toggle("hidden", !S.items.length || !showResults);
+  $("dock").classList.toggle("hidden", !S.items.length || !showResults || missingEmail);
   $("contactProgress").classList.toggle("hidden",!showResults);
   $("empty").classList.toggle("hidden", has || loading);
   $("edit").textContent = editing ? "Abbrechen" : "Ändern";
@@ -2502,8 +2695,8 @@ function render(changedCards){
     $("sumS").textContent = S.q.origin;
   }
   renderFilters();
-  const v = visible();
-  $("viewseg").classList.toggle("hidden", !hasMap || !showResults);
+  const v = missingEmail ? [] : visible();
+  $("viewseg").classList.toggle("hidden", !hasMap || !showResults || missingEmail);
   [...$("viewseg").children].forEach(b => b.classList.toggle("on", b.dataset.v === view));
   $("mapwrap").classList.toggle("hidden", !showMap);
   $("list").classList.toggle("hidden", showMap || !showResults);
@@ -2517,9 +2710,16 @@ function render(changedCards){
     $("mapCompanySheet").classList.toggle("open", !!selected);
     $("list").innerHTML = "";
   } else if (showResults) {
-    renderCompanyList(orderedResults(v),changedCards);
+    if (missingEmail) renderMissingEmailResults();
+    else renderCompanyList(orderedResults(v),changedCards);
   }
   updateResultActions(v);
+}
+function renderMissingEmailResults() {
+  $("list").innerHTML = S.items.filter(x=>!emailsOf(x).length).map(x=>`<div class="application-choice">
+    <span><strong>${esc(x.name)}</strong><small>${esc(x.address || "")}</small></span>
+    <button type="button" class="link" data-find-email="${esc(x.id)}" ${x.state === "run" ? "disabled" : ""}>${x.state === "run" ? "Suche …" : "E-Mail finden"}</button>
+  </div>`).join("") || '<p class="note">Für alle Treffer liegt eine E-Mail-Adresse vor.</p>';
 }
 function cardElement(x) {
   const container = document.createElement("div");
@@ -2530,7 +2730,7 @@ function cardElement(x) {
 function renderCompanyList(items,changedCards) {
   const list = $("list");
   if (!changedCards || !items.length) {
-    list.innerHTML = items.map(card).join("") || (S.q && S.items.length ? '<p class="note" style="text-align:center;padding:20px">Nichts in diesem Filter.</p>' : "");
+    list.innerHTML = items.map(card).join("") || (S.q && S.items.length ? `<p class="note" style="text-align:center;padding:20px">${filter === "all" ? "Noch keine Firma mit E-Mail-Adresse. Weitere Treffer findest du unter „Ohne E-Mail“." : "Nichts in diesem Filter."}</p>` : "");
     return;
   }
   const cards = new Map([...list.children].map(element=>[element.dataset.id,element]));
@@ -2730,8 +2930,8 @@ async function suggest(value, revision) {
 }
 async function enrichContacts(searchState) {
   clearTimeout(contactRun?.timer);
-  const queue = searchState.items.filter(x => !x.c?.error && needsContactScan(x))
-    .sort((a,b)=>listDistance(a)-listDistance(b));
+  const queue = searchState.items.filter(needsContactScan)
+    .sort((a,b)=>Number(!!emailsOf(a).length)-Number(!!emailsOf(b).length)||listDistance(a)-listDistance(b));
   const run = {search:searchState,done:0,total:queue.length,changed:new Set(),timer:null};
   contactRun = queue.length ? run : null;
   render();
@@ -2841,6 +3041,42 @@ async function scanBusiness(x) {
   render(new Set([x]));
   statusSummary();
   if (x.c?.error) toast(x.c.error);
+}
+
+const emailLookups = new WeakSet();
+async function findMissingEmail(x) {
+  if (emailLookups.has(x) || emailsOf(x).length) return;
+  const search = S;
+  emailLookups.add(x);
+  x.state = "run";
+  render(new Set([x]));
+  try {
+    if (needsContactScan(x)) await scanContact(x);
+    if (!emailsOf(x).length && S === search) {
+      const phone = await assistantPhone();
+      const params = new URLSearchParams({...phone.credentials,name:x.name.slice(0,160),
+        address:(x.address || "").slice(0,160),website:(x.website || "").slice(0,250)});
+      const response = await request(ASSISTANT_SERVER+"/contact/email-sources",{method:"POST",body:params.toString(),timeout:40000,max:4800000});
+      if (response.status === 401) return toast("Für die Websuche ist eine KI-Freigabe nötig.");
+      if (response.status === 429) return toast("Die Websuche ist ausgelastet. Versuch es gleich erneut.");
+      if (!response.ok) throw Error("email_search_unavailable");
+      const {sources} = JSON.parse(response.text);
+      const host = websiteKey(x.website || "").split("/")[0];
+      const verified = await verifiedEmails(x,sources.slice(0,3).map(source=>({url:source.url,page:extract(source.html),external:true})),host);
+      if (verified.emails.length) x.c = {...x.c,...verified,emailScanVersion:EMAIL_SCAN_VERSION};
+    }
+    if (S !== search) return;
+    if (emailsOf(x).length) {
+      filter = "all";
+      toast("E-Mail-Adresse gefunden");
+    } else toast("Keine belegte E-Mail-Adresse gefunden.");
+  } catch (_) {
+    if (S === search) toast("E-Mail-Suche gerade nicht erreichbar.");
+  } finally {
+    emailLookups.delete(x);
+    delete x.state;
+    if (S === search) { save(); render(); }
+  }
 }
 
 /* ---------- Bewerbungsliste ---------- */
@@ -3277,6 +3513,10 @@ function action(x, a){
   else if (a === "thread" && applicationThreads.has(x.id)) showMailThread(openMail("thread"),applicationThreads.get(x.id).id);
   else if (a === "scan") scanBusiness(x);
   else if (a === "contact-source" && /^https?:\/\//i.test(x.c?.person?.source || "")) openUrl(x.c.person.source);
+  else if (/^email-source-[01]$/.test(a)) {
+    const source = x.c?.emailSources?.[emailsOf(x)[Number(a.at(-1))]];
+    if (/^https?:\/\//i.test(source || "")) openUrl(source);
+  }
   else if (a === "jobs") openUrl(x.c.jobs);
   else if (a === "call") openUrl("tel:" + phones[0].replace(/[^\d+]/g, ""));
   else if (a === "web") openUrl(/^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website);
@@ -3306,13 +3546,13 @@ async function addWebsite(event) {
   button.disabled = true;
   button.textContent = "Suche Kontakte …";
   try {
-    const c = await crawl(url.href);
+    const c = await crawl(url.href,{name});
     if (c.error) { toast(c.error); return; }
     if (S !== searchState) return;
     const business = {id:"website:" + site, name:name || c.orgName || url.hostname, kind:"Website",
                       website:url.href, email:"", phone:"", address:"", km:null, c};
     S.items.unshift(business);
-    filter = "all"; view = "list"; save(); render(); statusSummary();
+    filter = emailsOf(business).length ? "all" : "missing-email"; view = "list"; save(); render(); statusSummary();
     $("websiteForm").reset();
     $("websiteDetails").open = false;
     if ($("sheet").classList.contains("open") && !$("settingsApp").classList.contains("hidden")) closeSheet();
@@ -4910,6 +5150,12 @@ $("go").onclick = doSearch;
 $("edit").onclick = () => setSearchEditing(!render.editing);
 $("filters").onclick = e => { const c = e.target.closest(".chip"); if (!c) return; filter = c.dataset.f; render(); };
 $("list").onclick = $("mapCompanyContent").onclick = e => {
+  const lookup = e.target.closest("[data-find-email]");
+  if (lookup) {
+    const company = S.items.find(x=>x.id === lookup.dataset.findEmail);
+    if (company) findMissingEmail(company);
+    return;
+  }
   const b = e.target.closest(".act"); if (!b) return;
   const id = b.closest(".card").dataset.id, x = S.items.find(i => i.id === id);
   if (!x) return;
